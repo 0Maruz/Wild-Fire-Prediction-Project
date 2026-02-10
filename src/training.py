@@ -1,5 +1,5 @@
 # =========================================================
-# FIRE RISK TRAINING PIPELINE (FINAL CLEAN VERSION)
+# FIRE RISK TRAINING PIPELINE (FINAL FIXED VERSION)
 # =========================================================
 
 import json
@@ -59,6 +59,7 @@ raw["date"] = raw["acq_datetime"].dt.date
 
 raw.rename(columns={"latitude": "lat", "longitude": "lon"}, inplace=True)
 
+# brightness (VIIRS / MODIS)
 raw["bright_main"] = np.nan
 if "bright_ti4" in raw.columns:
     raw["bright_main"] = raw["bright_ti4"]
@@ -68,6 +69,7 @@ if "bright" in raw.columns:
 use_cols = ["lat", "lon", "date", "frp", "bright_main", "confidence"]
 raw = raw[use_cols].copy()
 
+# 🔥 CRITICAL FIX: force numeric
 for c in ["frp", "bright_main", "confidence"]:
     raw[c] = pd.to_numeric(raw[c], errors="coerce")
 
@@ -106,6 +108,7 @@ firms.rename(columns={"latitude": "lat", "longitude": "lon"}, inplace=True)
 
 firms["bright_main"] = pd.to_numeric(firms["bright_ti4"], errors="coerce")
 firms["confidence"] = pd.to_numeric(firms["confidence"], errors="coerce")
+firms["frp"] = pd.to_numeric(firms["frp"], errors="coerce")
 
 firms["lat_grid"] = (firms["lat"] / GRID).round() * GRID
 firms["lon_grid"] = (firms["lon"] / GRID).round() * GRID
@@ -122,7 +125,7 @@ daily_firms = firms.groupby(
 )
 
 # =========================================================
-# 4) MERGE & SORT
+# 4) MERGE DATASETS
 # =========================================================
 df = pd.concat([daily_raw, daily_firms], ignore_index=True)
 df.fillna(0, inplace=True)
@@ -190,15 +193,7 @@ model.fit(X_train, y_train)
 # =========================================================
 y_proba = model.predict_proba(X_val)[:, 1]
 auc = roc_auc_score(y_val, y_proba)
-
 print(f"ROC AUC: {auc:.4f}")
-
-def topk_hit(y_true, y_score, k):
-    cutoff = np.percentile(y_score, 100 - k)
-    return y_true[y_score >= cutoff].mean()
-
-for k in [5, 10, 20]:
-    print(f"Top {k}% hit rate:", round(topk_hit(y_val.values, y_proba, k), 3))
 
 # =========================================================
 # 9) FEATURE IMPORTANCE
@@ -212,51 +207,21 @@ print("\nFEATURE IMPORTANCE")
 print(imp)
 
 # =========================================================
-# 10) DATASET METADATA (BACKEND READY)
+# 10) SAVE OUTPUTS
 # =========================================================
-print("\nDATASET INFO")
-print("Latest date   :", df["date"].max())
-print("Earliest date :", df["date"].min())
-print("Total days    :", df["date"].nunique())
-print("Total grids   :", df[["lat_grid", "lon_grid"]].drop_duplicates().shape[0])
+joblib.dump(model, os.path.join(MODEL_DIR, "lgbm_model.pkl"))
+df.to_csv(os.path.join(FEATURE_DIR, "full_features.csv"), index=False)
 
-# =========================================================
-# 11) SAVE MODEL, FEATURES, METADATA
-# =========================================================
-
-MODEL_PATH = os.path.join(MODEL_DIR, "lgbm_model.pkl")
-FEATURE_PATH = os.path.join(FEATURE_DIR, "full_features.csv")
-META_PATH = os.path.join(META_DIR, "dataset_info.json")
-
-# save model
-joblib.dump(model, MODEL_PATH)
-
-# save full feature dataset (for risk_map)
-df.to_csv(FEATURE_PATH, index=False)
-
-# save metadata (backend friendly)
-metadata = {
+meta = {
     "latest_date": str(df["date"].max()),
     "earliest_date": str(df["date"].min()),
     "total_days": int(df["date"].nunique()),
-    "total_grids": int(df[["lat_grid", "lon_grid"]].drop_duplicates().shape[0]),
-    "features": FEATURES,
-    "model": {
-        "type": "LightGBM",
-        "roc_auc": round(float(auc), 4),
-        "params": {
-            "n_estimators": N_ESTIMATORS,
-            "learning_rate": LEARNING_RATE,
-            "num_leaves": NUM_LEAVES,
-            "min_child_samples": MIN_CHILD_SAMPLES,
-        }
-    }
+    "total_grids": int(df[["lat_grid","lon_grid"]].drop_duplicates().shape[0]),
+    "roc_auc": round(float(auc), 4),
+    "features": FEATURES
 }
 
-with open(META_PATH, "w", encoding="utf-8") as f:
-    json.dump(metadata, f, indent=2)
+with open(os.path.join(META_DIR, "dataset_info.json"), "w", encoding="utf-8") as f:
+    json.dump(meta, f, indent=2)
 
-print("\n💾 OUTPUT SAVED")
-print("Model   :", MODEL_PATH)
-print("Features:", FEATURE_PATH)
-print("Meta    :", META_PATH)
+print("\n✅ TRAINING COMPLETE")

@@ -1,7 +1,0 @@
-.env
-__pycache__/
-.venv/
-*.pkl
-outputs/models/
-outputs/features/
-outputs/riskmap/*.geojson
