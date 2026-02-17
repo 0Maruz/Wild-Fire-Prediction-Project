@@ -1,0 +1,17 @@
+{
+  "latest_date": "2026-02-07",
+  "earliest_date": "2025-01-31",
+  "total_days": 359,
+  "total_grids": 8017,
+  "roc_auc": 0.8355,
+  "features": [
+    "fire_3d",
+    "frp_3d",
+    "frp_max",
+    "fire_days_7d",
+    "fire_yesterday",
+    "frp_trend",
+    "bright_mean",
+    "confidence_mean"
+  ]
+}

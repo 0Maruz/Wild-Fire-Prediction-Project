@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wildfire Risk — Thailand Region</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="logo">
+      <span class="logo-icon">🔥</span>
+      <div>
+        <span class="logo-title">PYROWATCH</span>
+        <span class="logo-sub">Wildfire Risk Intelligence · Thailand Region</span>
+      </div>
+    </div>
+    <div class="topbar-controls">
+      <label class="ctrl-label">DATE</label>
+      <input type="date" id="date-picker" />
+      <button id="btn-run" class="btn-primary">&#9654; Run Prediction</button>
+      <div id="status-pill" class="status-pill status-loading">
+        <span id="status-dot" class="dot"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+    </div>
+  </header>
+
+  <div id="map"></div>
+
+  <aside id="left-panel">
+    <section class="panel-section">
+      <h3 class="section-title">RISK LAYERS</h3>
+      <label class="toggle-row">
+        <input type="checkbox" id="toggle-heatmap" checked />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        Heat Map
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="toggle-markers" />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        Point Markers
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="toggle-grid" checked />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        Risk Grid
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="toggle-borders" checked />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        Country Borders
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3 class="section-title">RISK THRESHOLD</h3>
+      <div class="slider-wrap">
+        <input type="range" id="risk-slider" min="0" max="100" value="0" />
+        <div class="slider-labels"><span>0%</span><span id="slider-val">0%</span><span>100%</span></div>
+      </div>
+    </section>
+
+    <section class="panel-section">
+      <h3 class="section-title">LEGEND</h3>
+      <ul class="legend">
+        <li><span class="swatch" style="background:#1a9641"></span>Low &lt;20%</li>
+        <li><span class="swatch" style="background:#a6d96a"></span>Moderate 20-40%</li>
+        <li><span class="swatch" style="background:#ffffbf"></span>High 40-60%</li>
+        <li><span class="swatch" style="background:#fdae61"></span>Very High 60-80%</li>
+        <li><span class="swatch" style="background:#d73027"></span>Extreme &gt;80%</li>
+      </ul>
+    </section>
+
+    <section class="panel-section" id="stats-section">
+      <h3 class="section-title">STATISTICS</h3>
+      <div class="stat-grid">
+        <div class="stat-item">
+          <span class="stat-val" id="stat-total">-</span>
+          <span class="stat-key">Total Points</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-val extreme" id="stat-extreme">-</span>
+          <span class="stat-key">Extreme Risk</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-val high" id="stat-high">-</span>
+          <span class="stat-key">Very High</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-val" id="stat-model">-</span>
+          <span class="stat-key">Model Ver.</span>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  <!-- Tooltip -->
+  <div id="tooltip" class="tooltip hidden">
+    <div class="tt-header">📍 <span id="tt-coords"></span></div>
+    <div class="tt-body">
+      <div class="tt-row"><span>Country</span><span id="tt-country" class="tt-val">—</span></div>
+      <div class="tt-row"><span>Province / District</span><span id="tt-province" class="tt-val">—</span></div>
+      <div class="tt-divider"></div>
+      <div class="tt-row"><span>Risk Score</span><span id="tt-score" class="tt-val"></span></div>
+      <div class="tt-row"><span>Risk Level</span><span id="tt-level" class="tt-val"></span></div>
+      <div class="tt-row"><span>Temperature</span><span id="tt-temp" class="tt-val"></span></div>
+      <div class="tt-row"><span>Humidity</span><span id="tt-hum" class="tt-val"></span></div>
+      <div class="tt-row"><span>Wind Speed</span><span id="tt-wind" class="tt-val"></span></div>
+      <div class="tt-row"><span>NDVI</span><span id="tt-ndvi" class="tt-val"></span></div>
+    </div>
+  </div>
+
+  <div id="loading-overlay" class="hidden">
+    <div class="spinner"></div>
+    <p>Running prediction model...</p>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/geocode.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
