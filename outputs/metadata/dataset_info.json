@@ -1,0 +1,30 @@
+{
+  "latest_date": "2026-04-22",
+  "earliest_date": "2025-01-31",
+  "total_days": 357,
+  "total_grids": 9053,
+  "prediction_type": "fire_date",
+  "max_prediction_days": 7,
+  "features": [
+    "fire_3d",
+    "frp_3d",
+    "frp_max",
+    "fire_days_7d",
+    "fire_yesterday",
+    "frp_trend",
+    "bright_mean",
+    "confidence_mean"
+  ],
+  "model": {
+    "type": "LightGBM Regressor",
+    "mae_days": 1.22,
+    "rmse_days": 1.61,
+    "accuracy_1day": 0.7296,
+    "params": {
+      "n_estimators": 500,
+      "learning_rate": 0.05,
+      "num_leaves": 31,
+      "min_child_samples": 50
+    }
+  }
+}

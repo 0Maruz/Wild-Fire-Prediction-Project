@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🔥 Fire Date Prediction Dashboard</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="header">
+    <h1>🔥 Fire Date Predictor</h1>
+    <p class="subtitle">AI-powered wildfire date forecasting</p>
+  </div>
+
+  <!-- Date Info -->
+  <div class="info-card">
+    <div class="info-label">Base Date</div>
+    <div class="info-value" id="baseDate">Loading...</div>
+  </div>
+
+  <!-- Prediction Timeline -->
+  <div class="section">
+    <h3>📅 7-Day Fire Timeline</h3>
+    <div id="timeline">
+      <!-- Dynamically populated -->
+    </div>
+  </div>
+
+  <!-- Urgency Summary -->
+  <div class="section">
+    <h3>⚡ Urgency Summary</h3>
+    <div class="urgency-cards">
+      <div class="urgency-card critical">
+        <div class="urgency-label">CRITICAL</div>
+        <div class="urgency-count" id="criticalCount">0</div>
+        <div class="urgency-desc">Today</div>
+      </div>
+      <div class="urgency-card high">
+        <div class="urgency-label">HIGH</div>
+        <div class="urgency-count" id="highCount">0</div>
+        <div class="urgency-desc">1-2 days</div>
+      </div>
+      <div class="urgency-card medium">
+        <div class="urgency-label">MEDIUM</div>
+        <div class="urgency-count" id="mediumCount">0</div>
+        <div class="urgency-desc">3-4 days</div>
+      </div>
+      <div class="urgency-card low">
+        <div class="urgency-label">LOW</div>
+        <div class="urgency-count" id="lowCount">0</div>
+        <div class="urgency-desc">5-7 days</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- View Options -->
+  <div class="section">
+    <h3>🎨 Display Options</h3>
+    
+    <div class="option-group">
+      <label class="toggle-label">
+        <input type="checkbox" id="showObserved" checked>
+        <span>Show Observed Fires</span>
+      </label>
+    </div>
+
+    <div class="option-group">
+      <label class="toggle-label">
+        <input type="checkbox" id="showPredicted" checked>
+        <span>Show Predictions</span>
+      </label>
+    </div>
+
+    <div class="option-group">
+      <label class="toggle-label">
+        <input type="checkbox" id="clusterMarkers" checked>
+        <span>Cluster Markers</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Info -->
+  <div class="info-footer">
+    <small>
+      • Click markers for fire date details<br>
+      • Colors indicate urgency level<br>
+      • Powered by LightGBM AI
+    </small>
+  </div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-title">Fire Urgency</div>
+  <div class="legend-items">
+    <div class="legend-item">
+      <div class="legend-color critical"></div>
+      <span>Critical (Today)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color high"></div>
+      <span>High (1-2 days)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color medium"></div>
+      <span>Medium (3-4 days)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color low"></div>
+      <span>Low (5-7 days)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-color observed"></div>
+      <span>Observed Fire</span>
+    </div>
+  </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
