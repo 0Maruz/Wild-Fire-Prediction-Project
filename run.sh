@@ -93,6 +93,45 @@ EOF
   exit 1
 fi
 
+# ── Pre-flight: how stale is the FIRMS cache? ────────────────────────────
+# If the most recent hotspot date in data/firms/firms_all.{parquet,csv} is
+# more than STALE_DAYS old, auto-promote --fresh so we pull new data before
+# training. This keeps daily runs from silently using week-old hotspots.
+STALE_DAYS="${STALE_DAYS:-2}"
+STALENESS=$(python <<PY 2>/dev/null || echo "unknown"
+import os, sys
+sys.path.insert(0, "src")
+from datetime import date
+import pandas as pd
+from io_utils import resolve_existing
+p = resolve_existing(os.getenv("FIRMS_PATH", "data/firms/firms_all.parquet"))
+if not p:
+    print("missing"); sys.exit(0)
+df = pd.read_parquet(p) if p.endswith(".parquet") else pd.read_csv(p)
+if "acq_datetime" not in df.columns or df.empty:
+    print("missing"); sys.exit(0)
+latest = pd.to_datetime(df["acq_datetime"]).max().date()
+lag = (date.today() - latest).days
+print(f"{latest}|{lag}")
+PY
+)
+
+if [[ "$STALENESS" == "missing" ]]; then
+  echo "→ No FIRMS cache found — promoting --fresh so we fetch initial data."
+  FETCH_FIRMS=1
+elif [[ "$STALENESS" == "unknown" ]]; then
+  echo "  ⚠️  Could not determine FIRMS cache freshness; continuing without auto-refresh."
+else
+  LATEST_DATE="${STALENESS%|*}"
+  LAG_DAYS="${STALENESS#*|}"
+  echo "→ FIRMS cache: latest=${LATEST_DATE} (${LAG_DAYS} day(s) behind today)"
+  if [[ "${LAG_DAYS}" -gt "${STALE_DAYS}" && $FETCH_FIRMS -eq 0 ]]; then
+    echo "  ⚠️  Data is >${STALE_DAYS} days stale → promoting --fresh."
+    echo "      Set STALE_DAYS=999 to disable, or run with --fresh explicitly."
+    FETCH_FIRMS=1
+  fi
+fi
+
 # ── Stage 1: optional FIRMS fetch (real NASA data) ──────────────────────
 if [[ $FETCH_FIRMS -eq 1 ]]; then
   echo "→ Fetching latest FIRMS VIIRS NRT hotspots …"

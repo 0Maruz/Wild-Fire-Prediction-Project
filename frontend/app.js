@@ -119,6 +119,7 @@ function displayData() {
     .sort()
     .pop() || "N/A";
   document.getElementById("baseDate").textContent = latestBaseDate;
+  renderFreshness(latestBaseDate);
   predicted = predicted.filter(f => f.properties.base_date === latestBaseDate);
 
   // Apply day filter (real model output, no smoothing)
@@ -150,6 +151,48 @@ function dateAdd(isoDate, days) {
   if (isNaN(d.getTime())) return "—";
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
+}
+
+// ===================================
+// Data freshness — how stale is the FIRMS data we trained / predicted on?
+// FIRMS NRT typically arrives within hours but can lag by a day or more on
+// quota-throttled days. ERA5 weather has a built-in 5-day lag that we accept.
+// We surface this so the user knows whether "Today" on the timeline really
+// means the calendar today or is shifted because the upstream feed is behind.
+// ===================================
+function renderFreshness(baseDateIso) {
+  const badge = document.getElementById("freshnessBadge");
+  const note  = document.getElementById("freshnessNote");
+  if (!baseDateIso || baseDateIso === "N/A") {
+    badge.textContent = "no data";
+    badge.className = "freshness-badge expired";
+    note.textContent = "";
+    return;
+  }
+  const base = new Date(baseDateIso);
+  const today = new Date();
+  // Strip time-of-day so the diff is whole-day units.
+  base.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const lagDays = Math.round((today - base) / 86400000);
+
+  let cls, label, msg;
+  if (lagDays <= 0) {
+    cls = "fresh";   label = "live";
+    msg = "Data is current — Day +1 = real tomorrow.";
+  } else if (lagDays === 1) {
+    cls = "fresh";   label = "1 day old";
+    msg = "Yesterday's data — Day +1 = real today.";
+  } else if (lagDays <= 3) {
+    cls = "stale";   label = `${lagDays} d behind`;
+    msg = `Last FIRMS pull was ${lagDays} days ago. Run fetch_firms.py + risk_map.py to refresh.`;
+  } else {
+    cls = "expired"; label = `${lagDays} d behind`;
+    msg = `Data is ${lagDays} days stale — predictions may not reflect current conditions. Refresh with fetch_firms.py.`;
+  }
+  badge.textContent = label;
+  badge.className = `freshness-badge ${cls}`;
+  note.textContent = msg;
 }
 
 // ===================================

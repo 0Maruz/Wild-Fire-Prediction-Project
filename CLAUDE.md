@@ -13,7 +13,7 @@ This was previously a binary risk classifier; the current system is regression-b
 Every feature must come from a real, measurable source. The pipeline currently consumes:
 
 - **NASA FIRMS VIIRS NRT** (always on) — hotspot detections; powers fire/FRP/brightness/confidence and all spatial-neighbour features.
-- **Open-Meteo Archive API** (optional, no key) — real ECMWF ERA5 daily reanalysis (temp_max/min, precip_sum, wind_max, et0). Activated by running `python fetch_weather.py`, which caches to `data/weather/weather_cache.csv`.
+- **Open-Meteo Archive API** (optional, no key) — real ECMWF ERA5 daily reanalysis (temp_max/min, precip_sum, wind_max, et0). Activated by running `python fetch_weather.py`, which caches to `data/weather/weather_cache.parquet`.
 - **Calendar** — derived from each row's real `date`.
 
 No synthetic, simulated, randomly-generated, or interpolated values anywhere. If a real source isn't available for a given column, the column is simply not added to `FEATURES`. Don't introduce fake fallbacks or fabricated defaults — when something is missing, it's missing.
@@ -23,11 +23,11 @@ No synthetic, simulated, randomly-generated, or interpolated values anywhere. If
 All Python entry points use bare imports of each other (`from features import FEATURES`), so they must be run from inside `src/`:
 
 ```bash
-# 1. Pull latest VIIRS NRT hotspots from NASA FIRMS into data/firms/firms_all.csv
+# 1. Pull latest VIIRS NRT hotspots from NASA FIRMS into data/firms/firms_all.parquet
 cd src && python fetch_firms.py [--days 1-10]
 
 # 1b. (OPTIONAL) Pull real ERA5 weather for every active FIRMS cell into
-#      data/weather/weather_cache.csv. Requires no API key. Skip this and the
+#      data/weather/weather_cache.parquet. Requires no API key. Skip this and the
 #      training pipeline silently runs without weather features.
 cd src && python fetch_weather.py [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--limit-cells N]
 
@@ -41,6 +41,11 @@ cd src && python risk_map.py
 
 # 4. Serve the API (FastAPI on :8000)
 cd src && uvicorn api:app --reload
+
+# OR: end-to-end orchestrator at the project root (trains, then serves dashboard
+# on :8080 and FastAPI on :8000). Flags: --fresh (fetch FIRMS first), --weather,
+# --no-train, --open. Anything after `--` is forwarded to train.py.
+./run.sh [--fresh] [--weather] [--no-train] [-- --n-iter 30 --only lightgbm]
 ```
 
 Dependencies: `pip install -r requirements.txt` into `.venv/`. Requires a `.env` file with `FIRMS_API_KEY` (see `.env.example` for the full set). All scripts use `load_dotenv()`.
@@ -53,9 +58,10 @@ There is no test suite, linter, or build step.
 
 | File | Role |
 |---|---|
-| `fetch_firms.py` | Fetches VIIRS NRT hotspots from NASA FIRMS with retry/backoff; writes accumulative `data/firms/firms_all.csv`. |
-| `fetch_weather.py` | **Optional.** Fetches real ECMWF ERA5 daily aggregates from Open-Meteo Archive (no key) for every active FIRMS cell, caches to `data/weather/weather_cache.csv`. Idempotent — only fetches missing (cell, date) tuples. |
-| `data_loader.py` | Pure I/O: loads raw + FIRMS CSVs, cleans, snaps to grid, aggregates to daily cell-day, **densifies active cells** over the date range, and (if `weather_path` is supplied) left-joins the weather cache. |
+| `fetch_firms.py` | Fetches VIIRS NRT hotspots from NASA FIRMS with retry/backoff; writes accumulative `data/firms/firms_all.parquet`. |
+| `fetch_weather.py` | **Optional.** Fetches real ECMWF ERA5 daily aggregates from Open-Meteo Archive (no key) for every active FIRMS cell, caches to `data/weather/weather_cache.parquet`. Idempotent — only fetches missing (cell, date) tuples. |
+| `io_utils.py` | Format-agnostic table I/O. `read_table` / `write_table` / `resolve_existing` dispatch on file extension (`.csv` ↔ `.parquet`); `list_tables` resolves dirs/globs and prefers Parquet when both extensions exist for the same basename. **Use these helpers** instead of `pd.read_csv` / `pd.to_csv` so files stay swappable. |
+| `data_loader.py` | Pure I/O: loads raw + FIRMS hotspot tables (CSV or Parquet via `io_utils`), cleans, snaps to grid, aggregates to daily cell-day, **densifies active cells** over the date range, and (if `weather_path` is supplied) left-joins the weather cache. |
 | `features.py` | Lag/rolling/calendar + **3×3 spatial-neighbour** feature engineering, label generation, and **percentile-based urgency calibration**. Owns `FEATURES_CORE` (always-on) and `FEATURES_WEATHER` (only used when ERA5 columns are present). Use `resolve_features(df)` to get the deployed-model contract. |
 | `model.py` | Candidate factory (RandomForest, LightGBM, XGBoost), `RandomizedSearchCV` tuner using `TimeSeriesSplit`, evaluation (`MAE`, `RMSE`, `R²`, `acc±1`). |
 | `train.py` | Orchestrator: load → features → label → chronological 60/20/20 split → tune all candidates → pick best val MAE → held-out test eval → calibrate urgency thresholds from val predictions → refit on train+val → persist → trigger `risk_map.run()`. |
@@ -65,12 +71,12 @@ There is no test suite, linter, or build step.
 ### Pipeline
 
 ```
-data/raw/*.csv  ──┐
-                  ├─► data_loader ─► features ─► train ─► outputs/models/*.pkl
-data/firms/      ─┘    (densify)    (lag/roll/   (RF, LGBM, XGB)
-firms_all.csv                        calendar)         │
-                                                       ▼
-                                            outputs/features/full_features.csv
+data/raw/*.parquet ─┐
+                    ├─► data_loader ─► features ─► train ─► outputs/models/*.pkl
+data/firms/        ─┘    (densify)    (lag/roll/   (RF, LGBM, XGB)
+firms_all.parquet                      calendar)         │
+                                                         ▼
+                                            outputs/features/full_features.parquet
                                             outputs/metadata/dataset_info.json
                                                        │
                                                        ▼
@@ -88,10 +94,10 @@ firms_all.csv                        calendar)         │
 ### Two parallel data sources, intentionally merged
 
 `data_loader.load_and_prepare()` ingests **two separate hotspot sources** and concatenates them:
-- `RAW_DIR` (`data/raw/*.csv`) — historical bulk archive
-- `FIRMS_PATH` (`data/firms/firms_all.csv`) — NRT data accumulated by `fetch_firms.py`
+- `RAW_DIR` (`data/raw/*.parquet` or `*.csv`) — historical bulk archive
+- `FIRMS_PATH` (`data/firms/firms_all.parquet` or `.csv`) — NRT data accumulated by `fetch_firms.py`
 
-Both are gridded to `GRID_SIZE` (default 0.1°) cells via `(coord / GRID).round() * GRID`, then aggregated to one row per `(lat_grid, lon_grid, date)`.
+Both formats are read transparently via `io_utils.list_tables` / `read_table` (Parquet preferred when both extensions exist for the same basename). Files are gridded to `GRID_SIZE` (default 0.1°) cells via `(coord / GRID).round() * GRID`, then aggregated to one row per `(lat_grid, lon_grid, date)`.
 
 ### Densification (important)
 
@@ -106,7 +112,7 @@ After aggregation, `data_loader.densify_active_cells()` expands the sparse fire-
 `features.py` exposes two tuples and a resolver:
 
 - `FEATURES_CORE` (~53 columns) — always present. Lags at 1/2/3/7/14/30 days, rolls at 3/7/14/30 days, active-day counts, FRP trend, current-day signals, cyclic month/DOY, burn-season flag, lat/lon, **3×3 spatial-neighbour** fire/FRP aggregates with their own lags & rolls.
-- `FEATURES_WEATHER` (~30 columns) — only emitted when `data/weather/weather_cache.csv` exists. Per-variable today + lags 1/3/7 + rolls 3/7 over real ERA5 temp_max/temp_min/precip_sum/wind_max/et0.
+- `FEATURES_WEATHER` (~30 columns) — only emitted when `data/weather/weather_cache.parquet` (or `.csv`) exists. Per-variable today + lags 1/3/7 + rolls 3/7 over real ERA5 temp_max/temp_min/precip_sum/wind_max/et0.
 - `resolve_features(df)` — returns the actually-present subset given a feature dataframe. **Use this** (or `dataset_info.json["features"]` after training) instead of hardcoding a list.
 
 `api.py` and `risk_map.py` resolve the feature list at runtime by reading `outputs/metadata/dataset_info.json["features"]` first (matches the deployed model exactly), and fall back to `resolve_features(df)`. **Don't re-introduce hardcoded feature lists in those files.**
@@ -153,7 +159,7 @@ All entry points resolve paths via `BASE_DIR = os.path.dirname(os.path.dirname(o
 
 ### Gotchas
 
-- **`fetch_firms.py` HTTP 400 across all datasets** = bad / rate-limited `MAP_KEY`. Check status via `https://firms.modaps.eosdis.nasa.gov/mapserver/mapkey_status/?MAP_KEY=…`; FIRMS resets the daily transaction limit roughly every 24h. Training does not require a successful fetch — it can run on whatever is already in `data/raw/` + `data/firms/firms_all.csv`.
+- **`fetch_firms.py` HTTP 400 across all datasets** = bad / rate-limited `MAP_KEY`. Check status via `https://firms.modaps.eosdis.nasa.gov/mapserver/mapkey_status/?MAP_KEY=…`; FIRMS resets the daily transaction limit roughly every 24h. Training does not require a successful fetch — it can run on whatever is already in `data/raw/` + `data/firms/firms_all.parquet`.
 - **`uvicorn api:app` startup `RuntimeError: Model not found`** = no trained artifact yet. Run `train.py` to completion first; the API loads `outputs/models/lgbm_fire_date_model.pkl` at startup and refuses to serve without it.
 - **Stale model after feature changes**: if you add/remove anything in `FEATURES_CORE`/`FEATURES_WEATHER`, or you start/stop running `fetch_weather.py`, delete `outputs/models/*.pkl` before retraining. `api.py` and `risk_map.py` resolve the feature list from `dataset_info.json` to stay in sync, but a leftover `.pkl` from a different feature contract will silently mispredict.
 - **Weather cache lag**: Open-Meteo's archive endpoint trails real-time by ~5 days (ERA5T preliminary release). `fetch_weather.py` automatically caps `end_date` at `today - 5d` — for the most recent days, weather columns will be NaN and `features.add_temporal_features` fills NaN with 0 only at model-input time. The cache itself preserves the genuine missing-data signal; do not impute.

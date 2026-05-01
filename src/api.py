@@ -28,6 +28,7 @@ from features import (
     MAX_PREDICTION_DAYS,
     urgency_from_thresholds,
 )
+from io_utils import read_table, resolve_existing
 
 # =====================================
 # CONFIG
@@ -38,7 +39,7 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 MODEL_PATH   = os.path.join(BASE_DIR, "outputs", "models", "lgbm_fire_date_model.pkl")
-FEATURE_PATH = os.path.join(BASE_DIR, "outputs", "features", "full_features.csv")
+FEATURE_PATH = os.path.join(BASE_DIR, "outputs", "features", "full_features.parquet")
 META_PATH    = os.path.join(BASE_DIR, "outputs", "metadata", "dataset_info.json")
 RISKMAP_DIR  = os.path.join(BASE_DIR, "outputs", "riskmap")
 GEOJSON_PATH = os.path.join(RISKMAP_DIR, "fire_dates_all.geojson")
@@ -78,12 +79,13 @@ def _resolve_thresholds(meta: dict) -> dict:
 async def lifespan(app: FastAPI):
     if not os.path.exists(MODEL_PATH):
         raise RuntimeError(f"Model not found at {MODEL_PATH}. Run train.py first.")
-    if not os.path.exists(FEATURE_PATH):
-        raise RuntimeError(f"Feature CSV not found at {FEATURE_PATH}. Run train.py first.")
+    feature_path = resolve_existing(FEATURE_PATH)
+    if not feature_path:
+        raise RuntimeError(f"Feature file not found at {FEATURE_PATH}. Run train.py first.")
 
     app.state.model = joblib.load(MODEL_PATH)
 
-    df = pd.read_csv(FEATURE_PATH)
+    df = read_table(feature_path)
     df["date"] = pd.to_datetime(df["date"]).dt.date
     app.state.df = df
 

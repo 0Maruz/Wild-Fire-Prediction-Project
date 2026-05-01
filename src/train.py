@@ -36,6 +36,7 @@ from features import (
     calibrate_urgency_thresholds,
     resolve_features,
 )
+from io_utils import resolve_existing, write_table
 from model import evaluate, select_best
 
 logging.basicConfig(
@@ -58,8 +59,8 @@ def _paths() -> dict:
     return {
         "base_dir": base_dir,
         "raw_dir": _resolve(base_dir, os.getenv("RAW_DIR")) or os.path.join(base_dir, "data", "raw"),
-        "firms_path": _resolve(base_dir, os.getenv("FIRMS_PATH")) or os.path.join(base_dir, "data", "firms", "firms_all.csv"),
-        "weather_path": os.path.join(weather_dir, "weather_cache.csv"),
+        "firms_path": _resolve(base_dir, os.getenv("FIRMS_PATH")) or os.path.join(base_dir, "data", "firms", "firms_all.parquet"),
+        "weather_path": os.path.join(weather_dir, "weather_cache.parquet"),
         "output_dir": output_dir,
         "model_dir": os.path.join(output_dir, "models"),
         "feature_dir": os.path.join(output_dir, "features"),
@@ -119,7 +120,7 @@ def main(
         os.makedirs(d, exist_ok=True)
 
     log.info("==== STEP 1: load + grid raw FIRMS data ====")
-    weather_path = p["weather_path"] if os.path.exists(p["weather_path"]) else None
+    weather_path = resolve_existing(p["weather_path"])
     if weather_path:
         log.info("Real ERA5 weather cache detected → %s", weather_path)
     else:
@@ -136,8 +137,8 @@ def main(
     log.info("==== STEP 2: feature engineering ====")
     feats = build_features(daily, horizon=MAX_PREDICTION_DAYS, grid_size=grid_size)
 
-    feature_path = os.path.join(p["feature_dir"], "full_features.csv")
-    feats.to_csv(feature_path, index=False)
+    feature_path = os.path.join(p["feature_dir"], "full_features.parquet")
+    write_table(feats, feature_path)
     log.info("Saved feature dataset → %s", feature_path)
 
     log.info("==== STEP 3: filter to labelled rows ====")

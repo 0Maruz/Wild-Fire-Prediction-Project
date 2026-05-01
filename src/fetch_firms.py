@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from io_utils import read_table, resolve_existing, write_table
+
 load_dotenv()
 
 logging.basicConfig(
@@ -23,7 +25,7 @@ FIRMS_API_KEY = os.getenv("FIRMS_API_KEY")
 TH_BBOX = os.getenv("FIRMS_BBOX", "96,4,107,22")
 DEFAULT_DAYS = int(os.getenv("FIRMS_DAYS", "1"))
 DATA_DIR = os.getenv("DATA_DIR", "./data")
-OUT_FILE = os.getenv("FIRMS_PATH", "./data/firms/firms_all.csv")
+OUT_FILE = os.getenv("FIRMS_PATH", "./data/firms/firms_all.parquet")
 
 DATASETS = [
     "VIIRS_SNPP_NRT",
@@ -156,9 +158,10 @@ def update_firms(days: int = DEFAULT_DAYS, out_file: Optional[str] = None) -> in
 
     new_df = clean_firms(new_df)
 
-    if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
+    existing = resolve_existing(out_file)
+    if existing and os.path.getsize(existing) > 0:
         try:
-            old_df = pd.read_csv(out_file)
+            old_df = read_table(existing)
         except Exception as exc:
             log.warning("Failed to read existing cache (%s); starting fresh", exc)
             old_df = pd.DataFrame()
@@ -177,7 +180,7 @@ def update_firms(days: int = DEFAULT_DAYS, out_file: Optional[str] = None) -> in
     )
     combined = combined.sort_values("acq_datetime").reset_index(drop=True)
 
-    combined.to_csv(out_file, index=False)
+    write_table(combined, out_file)
     log.info(
         "Saved %d rows (deduped %d) → %s", len(combined), before - len(combined), out_file
     )

@@ -2,7 +2,7 @@
 
 Fetches daily temperature / precipitation / wind / evapotranspiration values
 for every active FIRMS grid cell over the dataset's full date range and caches
-the result to ``data/weather/weather_cache.csv``.
+the result to ``data/weather/weather_cache.parquet``.
 
 Key properties (per the project rule: real data only):
     • Source = Open-Meteo's free Archive API, which serves ECMWF ERA5 / ERA5-Land
@@ -40,6 +40,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from data_loader import grid_and_aggregate, clean_hotspots, load_firms_csv
+from io_utils import read_table, resolve_existing, write_table
 
 load_dotenv()
 
@@ -58,9 +59,9 @@ def _resolve(base_dir: str, value: Optional[str]) -> Optional[str]:
 
 
 RAW_DIR     = _resolve(BASE_DIR, os.getenv("RAW_DIR"))     or os.path.join(BASE_DIR, "data", "raw")
-FIRMS_PATH  = _resolve(BASE_DIR, os.getenv("FIRMS_PATH"))  or os.path.join(BASE_DIR, "data", "firms", "firms_all.csv")
+FIRMS_PATH  = _resolve(BASE_DIR, os.getenv("FIRMS_PATH"))  or os.path.join(BASE_DIR, "data", "firms", "firms_all.parquet")
 WEATHER_DIR = _resolve(BASE_DIR, os.getenv("WEATHER_DIR")) or os.path.join(BASE_DIR, "data", "weather")
-WEATHER_CACHE_PATH = os.path.join(WEATHER_DIR, "weather_cache.csv")
+WEATHER_CACHE_PATH = os.path.join(WEATHER_DIR, "weather_cache.parquet")
 
 # ECMWF ERA5 archive — no key required, ~5-day lag for the most recent dates.
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
@@ -190,8 +191,9 @@ def update_cache(
         return 0
 
     # Load existing cache so we only fetch missing (cell, date) tuples.
-    if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
-        cache = pd.read_csv(cache_path)
+    cache_existing = resolve_existing(cache_path)
+    if cache_existing and os.path.getsize(cache_existing) > 0:
+        cache = read_table(cache_existing)
         cache["date"] = pd.to_datetime(cache["date"]).dt.date
         existing = set(zip(cache["lat_grid"].round(6), cache["lon_grid"].round(6), cache["date"]))
     else:
@@ -250,7 +252,7 @@ def update_cache(
 
     combined = combined.drop_duplicates(subset=["lat_grid", "lon_grid", "date"])
     combined = combined.sort_values(["lat_grid", "lon_grid", "date"]).reset_index(drop=True)
-    combined.to_csv(cache_path, index=False)
+    write_table(combined, cache_path)
 
     log.info(
         "Saved %d total weather rows (%d new) → %s",

@@ -10,3 +10,4 @@ xgboost
 folium
 python-dotenv
 requests
+pyarrow

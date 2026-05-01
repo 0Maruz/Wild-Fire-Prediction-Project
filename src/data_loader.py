@@ -11,13 +11,14 @@ zeros. This gives correct "yesterday/last-week" semantics for rolling features.
 
 from __future__ import annotations
 
-import glob
 import logging
 import os
 from typing import Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
+
+from io_utils import list_tables, read_table, resolve_existing
 
 log = logging.getLogger("data_loader")
 
@@ -57,29 +58,16 @@ def _parse_confidence(series: pd.Series) -> pd.Series:
     return mapped.fillna(numeric)
 
 
-def _resolve_paths(paths_or_globs: Iterable[str]) -> List[str]:
-    resolved: List[str] = []
-    for p in paths_or_globs:
-        if not p:
-            continue
-        if any(ch in p for ch in "*?["):
-            resolved.extend(sorted(glob.glob(p)))
-        elif os.path.isdir(p):
-            resolved.extend(sorted(glob.glob(os.path.join(p, "*.csv"))))
-        elif os.path.exists(p):
-            resolved.append(p)
-    return resolved
-
-
 def load_firms_csv(paths_or_globs: Iterable[str]) -> pd.DataFrame:
-    files = _resolve_paths(paths_or_globs)
+    """Load FIRMS hotspots from any mix of CSV / Parquet files, dirs, or globs."""
+    files = list_tables(paths_or_globs)
     if not files:
         raise FileNotFoundError(
-            f"No FIRMS CSVs found at: {list(paths_or_globs)}. Run fetch_firms.py first."
+            f"No FIRMS CSV/Parquet files found at: {list(paths_or_globs)}. Run fetch_firms.py first."
         )
 
-    log.info("Loading %d FIRMS CSV file(s)", len(files))
-    frames = [pd.read_csv(f) for f in files]
+    log.info("Loading %d FIRMS file(s)", len(files))
+    frames = [read_table(f) for f in files]
     return pd.concat(frames, ignore_index=True)
 
 
@@ -195,13 +183,14 @@ def merge_weather(daily: pd.DataFrame, weather_path: Optional[str]) -> pd.DataFr
     wind_max, et0]. Cells / dates not in the cache get NaN, which features.py
     converts to 0 only at model-input time.
     """
-    if not weather_path or not os.path.exists(weather_path):
+    actual = resolve_existing(weather_path) if weather_path else None
+    if not actual:
         return daily
 
     try:
-        wx = pd.read_csv(weather_path)
+        wx = read_table(actual)
     except Exception as exc:
-        log.warning("Could not read weather cache (%s): %s — skipping merge.", weather_path, exc)
+        log.warning("Could not read weather cache (%s): %s — skipping merge.", actual, exc)
         return daily
 
     if wx.empty:

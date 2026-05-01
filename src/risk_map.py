@@ -24,8 +24,10 @@ from features import (
     FEATURES_WEATHER,
     MAX_PREDICTION_DAYS,
     DEFAULT_URGENCY_THRESHOLDS,
+    calibrate_urgency_thresholds,
     urgency_from_thresholds,
 )
+from io_utils import read_table
 
 # =========================================================
 # CONFIG
@@ -36,7 +38,7 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 MODEL_PATH = os.path.join(BASE_DIR, "outputs", "models", "lgbm_fire_date_model.pkl")
-DATA_PATH  = os.path.join(BASE_DIR, "outputs", "features", "full_features.csv")
+DATA_PATH  = os.path.join(BASE_DIR, "outputs", "features", "full_features.parquet")
 META_PATH  = os.path.join(BASE_DIR, "outputs", "metadata", "dataset_info.json")
 
 RISKMAP_DIR  = os.path.join(BASE_DIR, "outputs", "riskmap")
@@ -46,6 +48,14 @@ LATEST_PATH  = os.path.join(RISKMAP_DIR, "latest.json")
 os.makedirs(RISKMAP_DIR, exist_ok=True)
 
 HISTORY_WINDOW_DAYS = 30
+
+# Drop cells with no real fire activity in the last HISTORY_WINDOW_DAYS days
+# before computing urgency. The model still runs for them, but a cell that
+# hasn't burned in 30+ days has no signal — its prediction collapses to the
+# training-data mean (~3 days) and dilutes the urgency tiers. Filtering here
+# means the dashboard only ranks cells that actually carry some risk signal.
+# Set via env or override here. 0 disables the filter (legacy behaviour).
+MIN_HISTORICAL_FIRES_FOR_DISPLAY = int(os.getenv("MIN_HISTORICAL_FIRES_FOR_DISPLAY", "1"))
 
 
 # =========================================================
@@ -85,7 +95,7 @@ def _resolve_thresholds(meta: dict) -> dict:
 def load_assets():
     model = joblib.load(MODEL_PATH)
 
-    df = pd.read_csv(DATA_PATH)
+    df = read_table(DATA_PATH)
     df["date"] = pd.to_datetime(df["date"]).dt.date
 
     return model, df
@@ -151,17 +161,46 @@ def build_predicted(df: pd.DataFrame, model, base_date, meta: dict):
     # Rounding-proximity proxy. Documented as NOT a calibrated probability.
     base["prediction_confidence"] = 1.0 - np.abs(raw_pred - days_clipped)
 
-    thresholds = _resolve_thresholds(meta)
-    base["urgency_level"] = [
-        urgency_from_thresholds(int(d), thresholds) for d in days_clipped
-    ]
-
-    # Attach real historical fire count per cell (last 30 days from FIRMS)
+    # Attach real historical fire count per cell (last 30 days from FIRMS).
     counts = historical_fire_counts(df, base_date)
     base = base.merge(counts, on=["lat_grid", "lon_grid"], how="left")
     base["historical_fire_count_30d"] = (
         base["historical_fire_count_30d"].fillna(0).astype(int)
     )
+
+    # Drop low-signal cells before threshold calibration / display. Cells with
+    # zero recent fires get predictions that collapse to the training mean and
+    # dilute the urgency tiers; keeping only cells with real activity makes
+    # the calibrated tiers meaningful.
+    n_total = len(base)
+    if MIN_HISTORICAL_FIRES_FOR_DISPLAY > 0:
+        base = base[base["historical_fire_count_30d"] >= MIN_HISTORICAL_FIRES_FOR_DISPLAY].copy()
+    print(
+        f"Filtered cells with ≥{MIN_HISTORICAL_FIRES_FOR_DISPLAY} fire(s) in "
+        f"last {HISTORY_WINDOW_DAYS}d: {len(base):,} / {n_total:,} kept "
+        f"({len(base)*100/max(n_total,1):.1f}%)"
+    )
+
+    # Recalibrate urgency thresholds from THIS run's prediction distribution
+    # on the filtered (signal-bearing) cells, so the four tiers each carry a
+    # meaningful share of the displayed cells. Falls back to the val-derived
+    # thresholds in dataset_info.json (and ultimately the legacy defaults) if
+    # too few cells remain to estimate quantiles.
+    if len(base) >= 20:
+        thresholds = calibrate_urgency_thresholds(
+            base["raw_prediction"].to_numpy(),
+            horizon=MAX_PREDICTION_DAYS,
+        )
+        thresholds_source = "inference-time (filtered cells)"
+    else:
+        thresholds = _resolve_thresholds(meta)
+        thresholds_source = "val-derived fallback (too few cells to recalibrate)"
+    print(f"Urgency thresholds [{thresholds_source}]: {thresholds}")
+
+    base["urgency_level"] = [
+        urgency_from_thresholds(float(rp), thresholds)
+        for rp in base["raw_prediction"]
+    ]
 
     return base, base_date, thresholds
 

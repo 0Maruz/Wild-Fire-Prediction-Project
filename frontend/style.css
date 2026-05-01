@@ -98,6 +98,27 @@ html, body {
   color: #fff;
 }
 
+.info-sub {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 4px;
+}
+
+.freshness-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.freshness-badge.fresh   { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+.freshness-badge.stale   { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+.freshness-badge.expired { background: rgba(220, 38, 38, 0.2);  color: #dc2626; }
+
 /* ===================================
    SECTIONS
    =================================== */
