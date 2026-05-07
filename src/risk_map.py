@@ -24,11 +24,11 @@ from features import (
     FEATURES_WEATHER,
     MAX_PREDICTION_DAYS,
     DEFAULT_URGENCY_THRESHOLDS,
-    calibrate_urgency_thresholds,
     urgency_from_thresholds,
 )
 from io_utils import read_table
 from urban_areas import THAI_URBAN_AREAS, classify_urban
+from thailand_boundary import is_in_thailand
 
 # =========================================================
 # CONFIG
@@ -86,6 +86,12 @@ MIN_FIRE_DAYS_PER_YEAR = float(os.getenv("MIN_FIRE_DAYS_PER_YEAR", "1.0"))
 #                           5–10 = also drop suburban edge cells.
 URBAN_FILTER_ENABLED = os.getenv("URBAN_FILTER_ENABLED", "true").lower() in ("1", "true", "yes")
 URBAN_BUFFER_KM      = float(os.getenv("URBAN_BUFFER_KM", "0.0"))
+
+# Country filter: drop cells that fall outside Thailand's land border.
+# The FIRMS BBOX is rectangular and necessarily includes Myanmar, Laos,
+# Cambodia, Vietnam, and northern Malaysia — useful for the model to learn
+# regional fire patterns, but the dashboard is Thailand-focused. Default-on.
+COUNTRY_FILTER_ENABLED = os.getenv("COUNTRY_FILTER_ENABLED", "true").lower() in ("1", "true", "yes")
 
 
 # =========================================================
@@ -330,24 +336,35 @@ def build_predicted(df: pd.DataFrame, model, base_date, meta: dict):
             f"cities (+{URBAN_BUFFER_KM} km buffer); {len(base):,} / {before:,} kept "
             f"({len(base)*100/max(before,1):.1f}%)"
         )
+
+    # Country filter — drop cells outside Thailand's land border. Done last
+    # so the polygon-containment check (most expensive of the three filters)
+    # only runs against the smallest possible set.
+    if COUNTRY_FILTER_ENABLED and len(base) > 0:
+        before = len(base)
+        in_th = is_in_thailand(
+            base["lat_grid"].to_numpy(),
+            base["lon_grid"].to_numpy(),
+        )
+        base = base[in_th].copy()
+        n_dropped = before - len(base)
+        print(
+            f"Country       filter: dropped {n_dropped:,} cells outside Thailand "
+            f"(neighbour countries); {len(base):,} / {before:,} kept "
+            f"({len(base)*100/max(before,1):.1f}%)"
+        )
+
     print(f"Total after history filters: {len(base):,} / {n_total:,} cells "
           f"({len(base)*100/max(n_total,1):.1f}%)")
 
-    # Recalibrate urgency thresholds from THIS run's prediction distribution
-    # on the filtered (signal-bearing) cells, so the four tiers each carry a
-    # meaningful share of the displayed cells. Falls back to the val-derived
-    # thresholds in dataset_info.json (and ultimately the legacy defaults) if
-    # too few cells remain to estimate quantiles.
-    if len(base) >= 20:
-        thresholds = calibrate_urgency_thresholds(
-            base["raw_prediction"].to_numpy(),
-            horizon=MAX_PREDICTION_DAYS,
-        )
-        thresholds_source = "inference-time (filtered cells)"
-    else:
-        thresholds = _resolve_thresholds(meta)
-        thresholds_source = "val-derived fallback (too few cells to recalibrate)"
-    print(f"Urgency thresholds [{thresholds_source}]: {thresholds}")
+    # Use the same fixed-domain thresholds train.py persisted to
+    # dataset_info.json (CRITICAL=0, HIGH=2, MEDIUM=4, LOW=7). Quantile
+    # recalibration was removed because (a) it forced four equal-sized
+    # tiers regardless of the actual prediction distribution, hiding the
+    # fact that model output is often bunched, and (b) it disagreed with
+    # api.py's view of the same data, leading to dashboard ↔ API drift.
+    thresholds = _resolve_thresholds(meta)
+    print(f"Urgency thresholds [fixed-domain, from dataset_info.json]: {thresholds}")
 
     base["urgency_level"] = [
         urgency_from_thresholds(float(rp), thresholds)

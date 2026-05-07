@@ -11,3 +11,4 @@ folium
 python-dotenv
 requests
 pyarrow
+shapely>=2.0
