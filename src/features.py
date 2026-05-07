@@ -27,6 +27,8 @@ from typing import Dict, List, Literal, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from urban_areas import classify_urban
+
 log = logging.getLogger("features")
 
 MAX_PREDICTION_DAYS = 7
@@ -220,6 +222,14 @@ def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
     df["frp_sum_today"] = df["frp_sum"].fillna(0)
     df["bright_mean_today"] = df["bright_mean"].fillna(0)
     df["confidence_mean_today"] = df["confidence_mean"].fillna(0)
+    # Pass-through aggregates from data_loader. They're already on the daily
+    # frame; we just normalize NaN→0 for densified no-fire days.
+    if "night_fire_count" in df.columns:
+        df["night_fire_count"] = df["night_fire_count"].fillna(0)
+    if "afternoon_fire_count" in df.columns:
+        df["afternoon_fire_count"] = df["afternoon_fire_count"].fillna(0)
+    if "n_satellites_today" in df.columns:
+        df["n_satellites_today"] = df["n_satellites_today"].fillna(0)
 
     # ── neighbour lags / rolls (spatial signal from REAL adjacent-cell fires) ──
     if "neighbor_fire_today" in df.columns:
@@ -269,6 +279,83 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     df["doy_sin"] = np.sin(2 * np.pi * df["day_of_year"] / 365.0)
     df["doy_cos"] = np.cos(2 * np.pi * df["day_of_year"] / 365.0)
     df["is_burn_season"] = dt.dt.month.between(1, 4).astype(int)
+    # Distance from the peak of Thailand's burn season (mid-March, DOY ~75).
+    # Lets the model see "how deep into burn season are we" without relying
+    # solely on cyclic month/DOY which conflate Jan-far-from-peak with
+    # April-far-from-peak. Symmetric around DOY 75; clipped to [0, 100].
+    BURN_PEAK_DOY = 75
+    df["days_from_burn_peak"] = (
+        (df["day_of_year"] - BURN_PEAK_DOY).abs().clip(upper=100)
+    )
+    return df
+
+
+def add_dry_streak(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-cell days-since-last-fire counter, anchored to densified calendar days.
+
+    For each row at date t, ``days_since_last_fire`` = number of consecutive
+    fire-free days ending at t (inclusive). On a fire day this is 0; on a
+    no-fire day it is 1 + previous day's value. Captures vegetation-rebuild
+    time between fire events — a strong predictor of when the next fire
+    becomes possible. Causal: uses only the row's own date and earlier.
+    """
+    df = _ensure_sorted(df).copy()
+    fire_flag = (df["fire_count"].fillna(0) > 0).astype(int)
+    # Each fire bumps the per-cell "block id"; within a block, the row's
+    # position is the count of dry days since (and including) the most
+    # recent fire-day.
+    block = fire_flag.groupby([df["lat_grid"], df["lon_grid"]]).cumsum()
+    df["_dry_block"] = block
+    df["days_since_last_fire"] = (
+        df.groupby(GROUP_KEYS + ["_dry_block"]).cumcount()
+    )
+    df.drop(columns=["_dry_block"], inplace=True)
+    return df
+
+
+def add_cumulative_fire_rate(df: pd.DataFrame) -> pd.DataFrame:
+    """Annualized fire-day rate per cell using ONLY data observed before each
+    row's date. No leakage — at row t we use [t0..t-1] history.
+
+    The "static" full-history rate that risk_map.py uses for filtering would
+    leak future observations into training rows, so we compute an expanding-
+    window equivalent here. Cells with <30 observed days of history get NaN
+    (filled to 0 at model-input time, treated as "rate unknown").
+    """
+    df = _ensure_sorted(df).copy()
+    fire_flag = (df["fire_count"].fillna(0) > 0).astype(int)
+    grp = fire_flag.groupby([df["lat_grid"], df["lon_grid"]])
+    # Cumulative fire-days up to (but not including) this row.
+    cum_fires = grp.cumsum().groupby([df["lat_grid"], df["lon_grid"]]).shift(1).fillna(0)
+    # Days observed before this row (0-indexed cumcount = days before today).
+    days_before = df.groupby(GROUP_KEYS).cumcount()
+    rate = np.where(
+        days_before >= 30,
+        cum_fires * 365.25 / days_before.clip(lower=1),
+        0.0,
+    )
+    df["fire_days_per_year_so_far"] = rate.astype(float)
+    return df
+
+
+def add_urban_distance(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-cell great-circle distance to the nearest curated Thai urban centre.
+
+    Pure spatial feature, identical for every date of the same cell. Cells in
+    the city centre have small values; remote forest cells have large values.
+    Lets the model distinguish wildfire signal from city noise that escaped
+    the urban-exclusion filter (suburban edges, garbage burns, etc.).
+    """
+    df = df.copy()
+    # Compute once per (lat, lon) cell, then merge — classify_urban over the
+    # full row count would do redundant work since most cells have 447 rows.
+    cells = df[["lat_grid", "lon_grid"]].drop_duplicates().reset_index(drop=True)
+    _, urban_dist, _ = classify_urban(
+        cells["lat_grid"].to_numpy(),
+        cells["lon_grid"].to_numpy(),
+    )
+    cells["distance_to_nearest_city_km"] = urban_dist
+    df = df.merge(cells, on=["lat_grid", "lon_grid"], how="left")
     return df
 
 
@@ -310,11 +397,15 @@ def build_features(
 
     Order matters: spatial neighbours must be computed BEFORE temporal lags so
     that ``neighbor_fire_lag_*`` etc. can be derived from the per-day neighbour
-    aggregate.
+    aggregate. Static cell features (urban distance, climatological fire rate)
+    and per-row derivatives (dry streak, days-from-burn-peak) come after.
     """
     df = add_neighbor_features(daily, grid_size=grid_size)
     df = add_temporal_features(df)
     df = add_calendar_features(df)
+    df = add_dry_streak(df)
+    df = add_cumulative_fire_rate(df)
+    df = add_urban_distance(df)
     df = make_label_days_until_fire(df, horizon=horizon)
     log.info(
         "Built features for %d rows, %d positive labels (fire within %d days)",
@@ -345,6 +436,11 @@ def _build_core_feature_list() -> List[str]:
         "frp_sum_today",
         "bright_mean_today",
         "confidence_mean_today",
+        # Time-of-day stratification + multi-satellite consensus (no lags
+        # for now — add if importance scores show they help).
+        "night_fire_count",
+        "afternoon_fire_count",
+        "n_satellites_today",
     ]
     # Spatial neighbour signals (always emitted by add_neighbor_features)
     cols += ["neighbor_fire_today", "neighbor_frp_today"]
@@ -353,7 +449,16 @@ def _build_core_feature_list() -> List[str]:
     for w in NEIGHBOR_ROLLS:
         cols += [f"neighbor_fire_sum_{w}d", f"neighbor_frp_sum_{w}d"]
     # Calendar signals
-    cols += ["month_sin", "month_cos", "doy_sin", "doy_cos", "is_burn_season"]
+    cols += [
+        "month_sin", "month_cos", "doy_sin", "doy_cos",
+        "is_burn_season", "days_from_burn_peak",
+    ]
+    # Tier-1 added features: per-cell static + per-row causal derivatives.
+    cols += [
+        "distance_to_nearest_city_km",  # static, spatial
+        "fire_days_per_year_so_far",    # expanding-window, no leakage
+        "days_since_last_fire",         # causal dry-streak
+    ]
     cols += ["lat_grid", "lon_grid"]
     return cols
 

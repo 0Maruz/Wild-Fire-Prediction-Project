@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from io_utils import list_tables, read_table, resolve_existing
+from urban_areas import classify_urban
 
 log = logging.getLogger("data_loader")
 
@@ -32,6 +33,15 @@ AGG_COLUMNS = [
     "bright_mean",
     "bright_max",
     "confidence_mean",
+    # Time-of-day stratification (Thai local hours, derived from real UTC).
+    # `night_fire_count` = detections at hour 22-23 or 0-5 (Thai local) — these
+    # tend to be larger fires that survived dusk; `afternoon_fire_count` =
+    # 12-17 = peak agricultural-burn window.
+    "night_fire_count",
+    "afternoon_fire_count",
+    # How many of the 3 VIIRS satellites (SNPP, NOAA20, NOAA21) detected this
+    # cell on this date — multi-satellite consensus is a confidence signal.
+    "n_satellites_today",
 ]
 
 # Names produced by fetch_weather.py — must match features.WEATHER_COLUMNS.
@@ -58,6 +68,57 @@ def _parse_confidence(series: pd.Series) -> pd.Series:
     return mapped.fillna(numeric)
 
 
+# Minimum schema every FIRMS file must satisfy. Bulk archives use
+# `latitude`/`longitude` while NRT exports also include the same. Bright
+# columns vary (`bright_ti4` for VIIRS, `bright` for MODIS) so we require
+# at least one — `clean_hotspots` then derives `bright_main` from whichever
+# is present.
+FIRMS_REQUIRED = {"latitude", "longitude", "acq_date", "acq_time", "frp"}
+# VIIRS uses `bright_ti4`; MODIS bulk archives use `brightness`. Older NRT
+# exports sometimes use `bright`. Any one is enough for clean_hotspots to
+# derive `bright_main`.
+FIRMS_BRIGHT_ALTERNATIVES = ("bright_ti4", "brightness", "bright")
+
+
+def _validate_firms_schema(df: pd.DataFrame, source: str) -> None:
+    """Fail-fast schema check. Catches truncated downloads and corrupt files
+    before we burn 30 minutes on feature engineering only to crash mid-train.
+    """
+    cols = set(df.columns)
+    missing = FIRMS_REQUIRED - cols
+    if missing:
+        raise ValueError(
+            f"FIRMS file '{source}' is missing required columns {sorted(missing)}. "
+            f"Got columns: {sorted(cols)}. Re-run fetch_firms.py or replace the file."
+        )
+    if not any(c in cols for c in FIRMS_BRIGHT_ALTERNATIVES):
+        raise ValueError(
+            f"FIRMS file '{source}' has no brightness column "
+            f"(expected one of {FIRMS_BRIGHT_ALTERNATIVES}). Got: {sorted(cols)}."
+        )
+    if df.empty:
+        raise ValueError(f"FIRMS file '{source}' is empty.")
+
+
+def _infer_dataset_from_filename(path: str) -> str:
+    """Map FIRMS bulk-archive filenames to the same dataset labels fetch_firms.py
+    uses, so multi-satellite consensus features work consistently across the
+    historical archive and live NRT data.
+
+      fire_*_J1V-C2_*.parquet → VIIRS_NOAA20_NRT
+      fire_*_J2V-C2_*.parquet → VIIRS_NOAA21_NRT
+      fire_*_SV-C2_*.parquet  → VIIRS_SNPP_NRT
+    """
+    name = os.path.basename(path).upper()
+    if "J1V" in name:
+        return "VIIRS_NOAA20_NRT"
+    if "J2V" in name:
+        return "VIIRS_NOAA21_NRT"
+    if "SV-C2" in name or "_SV_" in name:
+        return "VIIRS_SNPP_NRT"
+    return "UNKNOWN"
+
+
 def load_firms_csv(paths_or_globs: Iterable[str]) -> pd.DataFrame:
     """Load FIRMS hotspots from any mix of CSV / Parquet files, dirs, or globs."""
     files = list_tables(paths_or_globs)
@@ -67,7 +128,17 @@ def load_firms_csv(paths_or_globs: Iterable[str]) -> pd.DataFrame:
         )
 
     log.info("Loading %d FIRMS file(s)", len(files))
-    frames = [read_table(f) for f in files]
+    frames = []
+    for f in files:
+        df = read_table(f)
+        _validate_firms_schema(df, f)
+        # Bulk archive files don't carry a `dataset` column (one satellite per
+        # file). Derive it from the filename so downstream multi-satellite
+        # aggregations work without special-casing.
+        if "dataset" not in df.columns:
+            df = df.copy()
+            df["dataset"] = _infer_dataset_from_filename(f)
+        frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
 
@@ -84,6 +155,8 @@ def clean_hotspots(
     df["bright_main"] = np.nan
     if "bright_ti4" in df.columns:
         df["bright_main"] = df["bright_ti4"]
+    if "brightness" in df.columns:
+        df["bright_main"] = df["bright_main"].fillna(df["brightness"])
     if "bright" in df.columns:
         df["bright_main"] = df["bright_main"].fillna(df["bright"])
 
@@ -119,8 +192,43 @@ def clean_hotspots(
             n_before - len(df),
         )
 
-    keep = ["lat", "lon", "date", "frp", "bright_main", "confidence", "acq_datetime"]
+    # Thai-local hour, derived from the real UTC acq_datetime. FIRMS reports
+    # acq_time in UTC; Thailand is UTC+7. Used downstream for night-vs-day
+    # fire stratification.
+    df["thai_hour"] = (df["acq_datetime"].dt.hour + 7) % 24
+    if "dataset" not in df.columns:
+        df["dataset"] = "UNKNOWN"
+
+    keep = ["lat", "lon", "date", "frp", "bright_main", "confidence",
+            "acq_datetime", "thai_hour", "dataset"]
     return df[keep].reset_index(drop=True)
+
+
+def filter_urban_hotspots(
+    df: pd.DataFrame,
+    buffer_km: float = 0.0,
+) -> pd.DataFrame:
+    """Drop hotspots that fall inside any curated Thai urban-area exclusion zone.
+
+    Cities produce non-wildfire FIRMS detections (garbage burning, industrial
+    heat, structure fires) that bias the model toward predicting "wildfire"
+    in Bangkok / Chiang Mai / etc. The curated list + radii live in
+    ``urban_areas.py``.
+    """
+    if df.empty:
+        return df
+    is_urban, _, _ = classify_urban(
+        df["lat"].to_numpy(),
+        df["lon"].to_numpy(),
+        buffer_km=buffer_km,
+    )
+    n_before = len(df)
+    out = df.loc[~is_urban].reset_index(drop=True)
+    log.info(
+        "Urban filter (buffer=%.1f km): dropped %d / %d hotspots",
+        buffer_km, n_before - len(out), n_before,
+    )
+    return out
 
 
 def grid_and_aggregate(
@@ -131,6 +239,14 @@ def grid_and_aggregate(
     df["lat_grid"] = (df["lat"] / grid_size).round() * grid_size
     df["lon_grid"] = (df["lon"] / grid_size).round() * grid_size
 
+    # Time-of-day flags computed *before* the groupby so `.sum` over them
+    # gives per-cell-day counts. `night` = Thai 22:00-05:59;
+    # `afternoon` = Thai 12:00-17:59 (peak agri-burn window).
+    night_hours = df["thai_hour"].isin([22, 23, 0, 1, 2, 3, 4, 5])
+    afternoon_hours = df["thai_hour"].between(12, 17)
+    df["_is_night"] = night_hours.astype(int)
+    df["_is_afternoon"] = afternoon_hours.astype(int)
+
     daily = df.groupby(["lat_grid", "lon_grid", "date"], as_index=False).agg(
         fire_count=("frp", "count"),
         frp_sum=("frp", "sum"),
@@ -139,6 +255,9 @@ def grid_and_aggregate(
         bright_mean=("bright_main", "mean"),
         bright_max=("bright_main", "max"),
         confidence_mean=("confidence", "mean"),
+        night_fire_count=("_is_night", "sum"),
+        afternoon_fire_count=("_is_afternoon", "sum"),
+        n_satellites_today=("dataset", "nunique"),
     )
 
     return daily.sort_values(["lat_grid", "lon_grid", "date"]).reset_index(drop=True)
@@ -232,11 +351,17 @@ def load_and_prepare(
     min_confidence: int = 0,
     densify: bool = True,
     weather_path: Optional[str] = None,
+    filter_urban: bool = True,
+    urban_buffer_km: float = 0.0,
 ) -> pd.DataFrame:
     """One-shot: glob raw_dir + firms_path → cleaned, gridded, daily aggregate.
 
     If ``weather_path`` is provided and exists, real ERA5 daily aggregates are
     left-joined onto the densified frame. Run ``fetch_weather.py`` to populate.
+
+    When ``filter_urban=True`` (default), hotspots inside any curated Thai
+    urban exclusion zone (``urban_areas.THAI_URBAN_AREAS``) are dropped before
+    gridding so the model trains on wildfire-only signal.
     """
     sources: List[str] = []
     if raw_dir:
@@ -249,6 +374,9 @@ def load_and_prepare(
 
     cleaned = clean_hotspots(raw, min_confidence=min_confidence)
     log.info("After cleaning: %d rows", len(cleaned))
+
+    if filter_urban:
+        cleaned = filter_urban_hotspots(cleaned, buffer_km=urban_buffer_km)
 
     daily = grid_and_aggregate(cleaned, grid_size=grid_size)
     log.info(
