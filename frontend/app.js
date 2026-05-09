@@ -75,10 +75,19 @@ async function init() {
 // ===================================
 // Render calibrated threshold ranges in urgency cards
 // ===================================
+// Detect whether the active thresholds came from risk_map.py's
+// snapshot-quantile fallback (raw_pred too narrow for the fixed
+// 0/2/4/7 cutoffs to differentiate cells). The fixed-cutoff CRITICAL
+// is exactly 0, so anything above means the fallback fired.
+function _isQuantileFallback(thresholds) {
+  return !!thresholds && Number(thresholds.CRITICAL) > 0;
+}
+
 function renderThresholds() {
   const t = state.thresholds;
+  const noteEl = document.getElementById("thresholdNote");
   if (!t) {
-    document.getElementById("thresholdNote").textContent =
+    noteEl.textContent =
       "No calibrated thresholds in metadata — falling back to legacy 0/2/4/7 cutoffs.";
     document.getElementById("criticalRange").textContent = "≤ 0 d";
     document.getElementById("highRange").textContent = "≤ 2 d";
@@ -91,6 +100,20 @@ function renderThresholds() {
   document.getElementById("highRange").textContent = fmt(t.HIGH);
   document.getElementById("mediumRange").textContent = fmt(t.MEDIUM);
   document.getElementById("lowRange").textContent = fmt(t.LOW);
+
+  // When the snapshot-quantile fallback fires, the 4 tiers are 25/50/75
+  // percentile rankings within THIS snapshot — not the absolute "fire
+  // today / 2 days / 4 days" cutoffs that fixed thresholds carry. Tell
+  // the operator so they don't read CRITICAL as "happening today".
+  if (_isQuantileFallback(t)) {
+    noteEl.innerHTML =
+      "<strong>Quantile mode:</strong> model output too narrow for fixed " +
+      "cutoffs, so tiers are 25/50/75 percentile ranks of this snapshot's " +
+      "raw predictions — relative ordering, not absolute risk.";
+  } else {
+    noteEl.textContent =
+      "Fixed-domain cutoffs (CRITICAL=0d, HIGH≤2d, MEDIUM≤4d, LOW≤7d).";
+  }
 }
 
 // ===================================
