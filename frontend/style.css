@@ -119,6 +119,34 @@ html, body {
 .freshness-badge.stale   { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
 .freshness-badge.expired { background: rgba(220, 38, 38, 0.2);  color: #dc2626; }
 
+.date-picker-row {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.date-picker-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+}
+
+.date-picker {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e5e5;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.date-picker:hover  { background: rgba(255, 255, 255, 0.08); }
+.date-picker:focus  { outline: 1px solid rgba(245, 158, 11, 0.6); }
+
 /* ===================================
    SECTIONS
    =================================== */

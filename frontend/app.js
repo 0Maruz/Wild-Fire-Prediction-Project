@@ -25,6 +25,12 @@ L.tileLayer(
 const state = {
   geojson: null,
   selectedDay: "all", // "all" | 0..7
+  // base_date controls which "snapshot" of predictions is rendered. The
+  // GeoJSON accumulates predictions for every base_date risk_map.py has
+  // ever run on (older entries are preserved by append_geojson). When the
+  // user picks an older date from the dropdown, we filter to that snapshot.
+  // Default is "latest" — resolved to the max base_date at render time.
+  selectedBaseDate: "latest",
   thresholds: null,   // { CRITICAL, HIGH, MEDIUM, LOW }
   metrics: null,      // held-out test metrics
   layers: { observed: null, predicted: null, heatmap: null },
@@ -113,15 +119,25 @@ function displayData() {
   const observed  = state.geojson.features.filter(f => f.properties.source === "observed");
   let   predicted = state.geojson.features.filter(f => f.properties.source === "predicted");
 
-  // Latest base_date wins (file may contain history of prior base dates).
-  const latestBaseDate = predicted
-    .map(f => f.properties.base_date)
-    .filter(Boolean)
-    .sort()
-    .pop() || "N/A";
-  document.getElementById("baseDate").textContent = latestBaseDate;
-  renderFreshness(latestBaseDate);
-  predicted = predicted.filter(f => f.properties.base_date === latestBaseDate);
+  // Discover every base_date stored in the GeoJSON so the operator can
+  // jump back to a previous snapshot (compare yesterday's call vs today's).
+  const allBaseDates = [...new Set(
+    predicted.map(f => f.properties.base_date).filter(Boolean)
+  )].sort();
+  const latestBaseDate = allBaseDates[allBaseDates.length - 1] || "N/A";
+
+  // Resolve the active base_date: "latest" follows the freshest snapshot,
+  // any other value is a specific date the user picked from the dropdown.
+  // Falls back to "latest" if the picked date no longer exists in the file.
+  let activeBaseDate = state.selectedBaseDate;
+  if (activeBaseDate === "latest" || !allBaseDates.includes(activeBaseDate)) {
+    activeBaseDate = latestBaseDate;
+  }
+  populateBaseDatePicker(allBaseDates, latestBaseDate, activeBaseDate);
+
+  document.getElementById("baseDate").textContent = activeBaseDate;
+  renderFreshness(activeBaseDate);
+  predicted = predicted.filter(f => f.properties.base_date === activeBaseDate);
 
   // Apply day filter (real model output, no smoothing)
   const daySelected = state.selectedDay;
@@ -150,6 +166,41 @@ function displayData() {
   updateStatistics(predicted); // urgency summary always reflects all 7 days
   updateTimeline(predicted, latestBaseDate);
   addLayersToMap();
+}
+
+// Build / refresh the <select id="baseDatePicker"> options. The most
+// recent snapshot is labelled "Latest"; older entries get a relative
+// "(N days behind)" suffix so an operator scanning the list can see
+// at a glance how stale each snapshot is.
+function populateBaseDatePicker(allDates, latestDate, activeDate) {
+  const sel = document.getElementById("baseDatePicker");
+  if (!sel) return;
+  sel.innerHTML = "";
+
+  // "Latest" follows the freshest snapshot — selecting it pins the view
+  // to whatever the next refresh produces.
+  const latestOpt = document.createElement("option");
+  latestOpt.value = "latest";
+  latestOpt.textContent = `Latest (${latestDate})`;
+  sel.appendChild(latestOpt);
+
+  // Specific snapshots, newest first.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const sortedDesc = [...allDates].sort().reverse();
+  for (const d of sortedDesc) {
+    const opt = document.createElement("option");
+    opt.value = d;
+    const dateObj = new Date(d);
+    dateObj.setHours(0, 0, 0, 0);
+    const lag = Math.round((today - dateObj) / 86400000);
+    const suffix = d === latestDate ? "newest" : `${lag} d behind today`;
+    opt.textContent = `${d} (${suffix})`;
+    sel.appendChild(opt);
+  }
+
+  // Reflect current state in the dropdown.
+  sel.value = state.selectedBaseDate === "latest" ? "latest" : activeDate;
 }
 
 function dateAdd(isoDate, days) {
@@ -743,6 +794,23 @@ function bindEvents() {
   document.querySelectorAll(".day-btn").forEach(btn => {
     btn.addEventListener("click", () => selectDay(btn.dataset.day));
   });
+
+  // Base-date picker: switch the view between historical snapshots without
+  // having to re-run risk_map.py. Defaults to "latest" so a fresh load
+  // always shows current predictions.
+  const datePicker = document.getElementById("baseDatePicker");
+  if (datePicker) {
+    datePicker.addEventListener("change", () => {
+      state.selectedBaseDate = datePicker.value;
+      // Reset day filter so the new snapshot's full prediction set is visible.
+      state.selectedDay = "all";
+      document.querySelectorAll(".day-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.day === "all");
+      });
+      displayData();
+    });
+  }
+
   document.getElementById("showObserved").addEventListener("change", displayData);
   document.getElementById("clusterMarkers").addEventListener("change", displayData);
   document.getElementById("showCellPins").addEventListener("change", displayData);
