@@ -24,6 +24,7 @@ from features import (
     FEATURES_WEATHER,
     MAX_PREDICTION_DAYS,
     DEFAULT_URGENCY_THRESHOLDS,
+    calibrate_urgency_thresholds,
     urgency_from_thresholds,
 )
 from io_utils import read_table
@@ -418,14 +419,32 @@ def build_predicted(df: pd.DataFrame, model, base_date, meta: dict):
     print(f"Total after history filters: {len(base):,} / {n_total:,} cells "
           f"({len(base)*100/max(n_total,1):.1f}%)")
 
-    # Use the same fixed-domain thresholds train.py persisted to
-    # dataset_info.json (CRITICAL=0, HIGH=2, MEDIUM=4, LOW=7). Quantile
-    # recalibration was removed because (a) it forced four equal-sized
-    # tiers regardless of the actual prediction distribution, hiding the
-    # fact that model output is often bunched, and (b) it disagreed with
-    # api.py's view of the same data, leading to dashboard ↔ API drift.
-    thresholds = _resolve_thresholds(meta)
-    print(f"Urgency thresholds [fixed-domain, from dataset_info.json]: {thresholds}")
+    # Use fixed-domain thresholds (CRITICAL=0, HIGH=2, MEDIUM=4, LOW=7) by
+    # default, BUT fall back to per-snapshot quantile thresholds when the
+    # fixed cutoffs would collapse every surviving cell into a single tier
+    # (model output is too narrow). The bunching is still visible to anyone
+    # who reads the metadata: `urgency_thresholds_source` records which
+    # mode was used, and dataset_info.json keeps the fixed cutoffs for
+    # api.py and training-time semantics.
+    fixed_thresholds = _resolve_thresholds(meta)
+    if len(base) >= 20:
+        fixed_tiers = {
+            urgency_from_thresholds(float(rp), fixed_thresholds)
+            for rp in base["raw_prediction"]
+        }
+        if len(fixed_tiers) <= 1:
+            thresholds = calibrate_urgency_thresholds(
+                base["raw_prediction"].to_numpy(),
+                horizon=MAX_PREDICTION_DAYS,
+            )
+            thresholds_source = "snapshot-quantile fallback (fixed cutoffs collapse to one tier)"
+        else:
+            thresholds = fixed_thresholds
+            thresholds_source = "fixed-domain, from dataset_info.json"
+    else:
+        thresholds = fixed_thresholds
+        thresholds_source = "fixed-domain (too few cells to recalibrate)"
+    print(f"Urgency thresholds [{thresholds_source}]: {thresholds}")
 
     base["urgency_level"] = [
         urgency_from_thresholds(float(rp), thresholds)
