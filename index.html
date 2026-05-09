@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fire Date Predictor — Thailand</title>
+  <meta name="description" content="Real-data wildfire date prediction for Thailand. Machine-learning forecasts of when each grid cell is likely to burn next, derived from NASA FIRMS satellite hotspots, ECMWF ERA5 weather, and Hansen Global Forest Change vegetation data.">
+
+  <!-- Open Graph / Twitter card -->
+  <meta property="og:title" content="Fire Date Predictor — Thailand">
+  <meta property="og:description" content="ML forecasts of when each grid cell is likely to burn next, from real NASA / ECMWF / Hansen data.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+      background: #0f1012;
+      color: #e8e8ec;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      line-height: 1.6;
+    }
+    .container { max-width: 640px; }
+    h1 {
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 8px;
+    }
+    .accent { color: #f97316; }
+    .tagline { color: #a0a3aa; font-size: 14px; margin-bottom: 28px; }
+    .cta {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #f97316;
+      color: #fff;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      margin-right: 12px;
+      margin-bottom: 12px;
+      transition: background 0.12s;
+    }
+    .cta:hover { background: #ea580c; }
+    .cta.secondary {
+      background: transparent;
+      border: 1px solid #24252a;
+      color: #e8e8ec;
+    }
+    .cta.secondary:hover { background: #1c1d22; }
+
+    .section { margin-top: 32px; }
+    .section h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #a0a3aa;
+      letter-spacing: 0.02em;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+    .section p { font-size: 14px; color: #d0d3da; margin-bottom: 8px; }
+    .section ul { padding-left: 20px; font-size: 14px; color: #d0d3da; }
+    .section li { margin-bottom: 4px; }
+    a { color: #f97316; }
+    a:hover { color: #fb923c; }
+
+    .disclaimer {
+      margin-top: 32px;
+      padding: 16px;
+      background: rgba(239, 68, 68, 0.08);
+      border-left: 3px solid #ef4444;
+      border-radius: 6px;
+      font-size: 13px;
+      color: #d0d3da;
+      line-height: 1.5;
+    }
+    .disclaimer strong { color: #f87171; }
+
+    code {
+      background: #1c1d22;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 13px;
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1><span class="accent">🔥</span> Fire Date Predictor</h1>
+    <p class="tagline">Real-data wildfire date prediction for Thailand. NASA FIRMS · Hansen GFC · Open-Meteo ERA5.</p>
+
+    <a class="cta" href="frontend/">Open dashboard →</a>
+    <a class="cta secondary" href="https://github.com/0Maruz/Science-Project">GitHub repo</a>
+
+    <div class="section">
+      <h2>What this is</h2>
+      <p>A tree-ensemble regressor predicts <code>days_until_fire</code> (0–7) per 0.1° grid cell across Thailand. Predictions are rendered on a Leaflet map with urgency tiers calibrated against the held-out test split.</p>
+    </div>
+
+    <div class="section">
+      <h2>Data sources (real only)</h2>
+      <ul>
+        <li><a href="https://firms.modaps.eosdis.nasa.gov/" target="_blank" rel="noopener">NASA FIRMS VIIRS NRT</a> — satellite hotspot detections</li>
+        <li><a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo Archive</a> — ECMWF ERA5 daily reanalysis</li>
+        <li><a href="https://www.globalforestwatch.org/" target="_blank" rel="noopener">Hansen Global Forest Change v1.11</a> — baseline canopy + recent loss</li>
+        <li><a href="https://github.com/apisit/thailand.json" target="_blank" rel="noopener">Thai province boundaries</a> (CC BY 4.0)</li>
+      </ul>
+      <p style="margin-top: 8px;">No synthetic / simulated / interpolated values. If a real source isn't available the column is dropped, never faked.</p>
+    </div>
+
+    <div class="section">
+      <h2>Held-out test metrics</h2>
+      <p>MAE ≈ 1.46 days · R² ≈ 0.28 · Acc±1day ≈ 52% · 16% better than the predict-mean baseline.</p>
+    </div>
+
+    <div class="disclaimer">
+      <strong>⚠ Disclaimer:</strong> This is a research / demo project, not an official emergency-response tool. Predictions are advisory and may not reflect current conditions. For authoritative wildfire information consult <a href="https://disaster.gistda.or.th/fire" target="_blank" rel="noopener">GISTDA's official disaster portal</a> or local authorities.
+    </div>
+  </div>
+</body>
+</html>
