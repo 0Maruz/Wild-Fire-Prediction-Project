@@ -34,7 +34,8 @@ cd src && python fetch_weather.py [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--lim
 # 2. Train the model (runs the full data → features → tune → save pipeline)
 cd src && python train.py [--n-iter 20] [--n-splits 5] [--only lightgbm,xgboost]
 #                          [--quick]            ← 10 iter × 3 splits, LGBM only (~3 min)
-#                          [--min-confidence 30] ← VIIRS conf floor (default 30)
+#                          [--min-confidence 0] ← VIIRS conf floor (default 0; bumping
+#                                                  to 30 empirically hurt val MAE)
 # Default candidate set is `lightgbm,xgboost`; random_forest is excluded because
 # it has lost on val MAE while consuming ~95 % of tuning time. Pass
 # `--only random_forest,lightgbm,xgboost` to reinstate.
@@ -67,8 +68,9 @@ There is no test suite, linter, or build step.
 | `fetch_weather.py` | **Optional.** Fetches real ECMWF ERA5 daily aggregates from Open-Meteo Archive (no key) for every active FIRMS cell, caches to `data/weather/weather_cache.parquet`. Idempotent — only fetches missing (cell, date) tuples. |
 | `fetch_treecover.py` | **Optional, run-once.** Streams Hansen Global Forest Change v1.11 `treecover2000` + `lossyear` rasters via HTTP range reads, aggregates 30 m source pixels into the project's 0.1° grid, writes per-cell `tree_cover_pct_2000` + `tree_loss_pct_recent` to `data/static/tree_cover_per_cell.parquet`. Adds vegetation context that the model otherwise lacks. |
 | `io_utils.py` | Format-agnostic table I/O. `read_table` / `write_table` / `resolve_existing` dispatch on file extension (`.csv` ↔ `.parquet`); `list_tables` resolves dirs/globs and prefers Parquet when both extensions exist for the same basename. **Use these helpers** instead of `pd.read_csv` / `pd.to_csv` so files stay swappable. |
-| `data_loader.py` | Pure I/O: loads raw + FIRMS hotspot tables (CSV or Parquet via `io_utils`), cleans, snaps to grid, aggregates to daily cell-day, **densifies active cells** over the date range, drops hotspots inside curated urban areas (`filter_urban_hotspots`), and (if `weather_path` is supplied) left-joins the weather cache. |
+| `data_loader.py` | Pure I/O with fail-fast schema validation: loads raw + FIRMS hotspot tables (CSV or Parquet via `io_utils`) — `_validate_firms_schema` rejects truncated / corrupt files before training burns 30 min. Cleans, snaps to grid, aggregates to daily cell-day plus time-of-day buckets (Thai-local night / afternoon counts) and per-cell `n_satellites_today` (multi-satellite consensus). **Densifies active cells** over the date range, drops hotspots inside curated urban areas (`filter_urban_hotspots`), and left-joins the optional weather + Hansen tree-cover caches. |
 | `urban_areas.py` | Curated list of ~40 Thai urban centres with hand-tuned exclusion radii. `classify_urban(lats, lons, buffer_km)` returns `(is_urban, nearest_dist_km, nearest_name)` for any batch of cells. Used at training time (drop urban hotspots) and at inference time (drop urban predictions, annotate "nearest city"). |
+| `thailand_boundary.py` | Loads the 77-province Thailand GeoJSON, merges into one MultiPolygon for the country-level mask, and exposes `is_in_thailand(lats, lons)` (drops cells outside the land border) and `find_province(lats, lons)` (per-cell province annotation). Both use a cheap bbox precheck before the prepared-geometry `.contains()` call. |
 | `features.py` | Lag/rolling/calendar + **3×3 spatial-neighbour** feature engineering, label generation, dry-streak counter, expanding-window fire rate, urban-distance feature, and burn-season-distance feature. Owns `FEATURES_CORE` (always-on) and `FEATURES_WEATHER` (only used when ERA5 columns are present). Use `resolve_features(df)` to get the deployed-model contract. |
 | `model.py` | Candidate factory (RandomForest, LightGBM, XGBoost), `RandomizedSearchCV` tuner using `TimeSeriesSplit`, evaluation (`MAE`, `RMSE`, `R²`, `acc±1`). |
 | `train.py` | Orchestrator: load → features → label → chronological 60/20/20 split → tune candidates (default `lightgbm,xgboost`) → pick best val MAE → held-out test eval + predict-mean baseline + prediction-distribution sanity check → refit on train+val → persist (current model + timestamped snapshot in `outputs/models/history/`) → trigger `risk_map.run()`. |
@@ -118,12 +120,13 @@ After aggregation, `data_loader.densify_active_cells()` expands the sparse fire-
 
 `features.py` exposes two tuples and a resolver:
 
-- `FEATURES_CORE` (~57 columns) — always present:
+- `FEATURES_CORE` (~62 columns) — always present:
   - Lags at 1/2/3/7/14/30 days, rolls at 3/7/14/30 days, active-day counts, FRP trend.
   - Current-day signals (`fire_count_today`, `frp_sum_today`, `bright_mean_today`, `confidence_mean_today`).
+  - **Time-of-day + multi-satellite** (Thai-local hours): `night_fire_count` (22:00-05:59 = larger fires that survived dusk), `afternoon_fire_count` (12:00-17:59 = peak agri-burn window), `n_satellites_today` (count of distinct VIIRS satellites that detected this cell — confidence signal).
   - Cyclic month/DOY, burn-season flag, `days_from_burn_peak` (distance from DOY 75, Thailand's peak burn day).
   - **3×3 spatial-neighbour** fire/FRP aggregates with their own lags & rolls.
-  - **Tier-1 cell features** (added 2026-05): `distance_to_nearest_city_km` (static, from `urban_areas.classify_urban`), `fire_days_per_year_so_far` (expanding window, no leakage — uses only data before each row's date), `days_since_last_fire` (causal dry-streak counter, resets on each fire-day).
+  - **Tier-1 cell features**: `distance_to_nearest_city_km` (static, from `urban_areas.classify_urban`), `fire_days_per_year_so_far` (expanding window, no leakage — uses only data before each row's date), `days_since_last_fire` (causal dry-streak counter, resets on each fire-day).
   - **Vegetation features** (when `data/static/tree_cover_per_cell.parquet` exists from `fetch_treecover.py`): `tree_cover_pct_2000` (Hansen GFC baseline canopy density), `tree_loss_pct_recent` (% pixels in cell that lost forest 2018-2023). Distinguishes "what's there to burn" — dense forest cells behave very differently from grassland given identical fire history.
   - `lat_grid`, `lon_grid` — coarse spatial encoding.
 - `FEATURES_WEATHER` (~30 columns) — only emitted when ERA5 weather columns are present in the daily frame. Per-variable today + lags 1/3/7 + rolls 3/7 over `temp_max` / `temp_min` / `precip_sum` / `wind_max` / `et0`. Auto-dropped at training time when coverage falls below `MIN_WEATHER_COVERAGE` (default 20 %, configurable via env) — a sparse weather cache is more harmful than absent weather, since lag/roll features collapse to NaN→0 noise.
@@ -137,11 +140,36 @@ After aggregation, `data_loader.densify_active_cells()` expands the sparse fire-
 
 Spatial features must be computed *before* `add_temporal_features()` so the lags/rolls of `neighbor_fire_today` / `neighbor_frp_today` exist downstream.
 
-### Urgency thresholds — fixed-domain, consistent across surfaces
+### Urgency thresholds — fixed-domain with degenerate-case fallback
 
-`train.py` persists fixed-domain cutoffs (`CRITICAL=0, HIGH=2, MEDIUM=4, LOW=7`) into `dataset_info.json["urgency_thresholds"]`. `api.py`, `risk_map.py`, and the frontend all read from this single source. **Do not re-introduce quantile/percentile recalibration in any consumer** — earlier versions of `risk_map.py` did, which made the dashboard's tier counts look balanced (~25 % each) at the cost of (a) hiding bunched-prediction pathologies, and (b) drifting away from the API's view of the same data. The fixed cutoffs let `NONE` actually appear (predictions > 7d) and surface model bunching honestly.
+`train.py` persists fixed-domain cutoffs (`CRITICAL=0, HIGH=2, MEDIUM=4, LOW=7`) into `dataset_info.json["urgency_thresholds"]` — this is the single source of truth for `api.py` and any operator-facing tooling that wants the trained-model semantic cutoffs.
 
-`features.urgency_from_thresholds(days, thresholds)` is the canonical mapping. `features.calibrate_urgency_thresholds(...)` and `get_urgency()` remain in the codebase as backwards-compat helpers but are no longer wired into the pipeline.
+`risk_map.py` applies the fixed cutoffs by default, BUT falls back to **per-snapshot 25/50/75 quantile thresholds** when applying the fixed scheme would collapse every surviving cell into a single tier (model output too narrow for absolute cutoffs to differentiate). Empirically this fires when `raw_pred` spans <1 day; e.g. on a 2026-05-09 run with predictions in `[2.73, 3.36]` the fixed scheme would put all 159 cells in MEDIUM, so the fallback gives 40/40/39/40 across CRITICAL/HIGH/MEDIUM/LOW — relative ranking that lets an operator triage cells.
+
+The fallback is scoped narrowly so the original concerns from the old quantile recalibration don't return:
+- It only activates when the fixed scheme is degenerate (≤ 1 distinct tier). Healthy snapshots keep the absolute "fire today / 2 days / 4 days" semantics.
+- `dataset_info.json` still carries fixed thresholds — `api.py` and trained-model metadata don't drift.
+- Bunching is still surfaced via `dataset_info.json["model"]["predictions_bunched"]` and the per-run skill check, so a dishonestly-pretty 25 %-each-tier doesn't hide a pathological model from monitoring.
+- The frontend (`app.js: _isQuantileFallback`) detects the fallback (`CRITICAL > 0`) and replaces the threshold-note copy with "Quantile mode: tiers are 25/50/75 percentile ranks of this snapshot — relative ordering, not absolute risk", so the equal counts make sense to the operator.
+
+`features.urgency_from_thresholds(days, thresholds)` is the canonical mapping. `features.calibrate_urgency_thresholds(...)` is wired into `risk_map.py` for the fallback path; `get_urgency()` remains as a backwards-compat helper.
+
+### Day-bucket assignment — floor, not round
+
+`risk_map.py` (and `api.py` to match) bucket `raw_prediction` into integer days with `np.floor`, not `np.round`. With `np.round`, the model's lowest predictions (~0.96) all rounded UP to day 1 and day 0 was empty by construction — the dashboard's "Today" count was always 0, even on snapshots where some cells genuinely had near-immediate predictions. Floor lets a `raw_pred` of 0.96 land on day 0 (= "fire within 24h"), which matches the operator's reading of the bucket label. Net effect on a representative run: day-1/2/3 went from `8 / 432 / 535` (round) to `84 / 100 / 7` (floor), aligning closely with GISTDA's observed ~74 daily hotspots.
+
+The `prediction_confidence` proxy is rewritten as `1 - 2 × |raw_pred - (floored + 0.5)|` so a value sitting in the middle of its bucket reads `1.0`; doubled slope keeps the result in `[0, 1]`.
+
+### Per-day cap and history filters — match GISTDA scale
+
+`risk_map.py` runs four filters in succession on each base-date inference set, each persisted to GeoJSON metadata so the operator can see the funnel:
+
+1. **History filters** — `MIN_HISTORICAL_FIRES_FOR_DISPLAY` (default 3 fires in last 30d), `MIN_LONG_HISTORICAL_FIRES` (default 3 in last 90d), `MIN_FIRE_DAYS_PER_YEAR` (default 3 fire-days/year). Anything below all three is dropped — the model's prediction for those cells is dominated by climatology rather than current activity.
+2. **Urban filter** — drop cells inside the curated city polygons (training and inference both use `urban_areas.classify_urban`).
+3. **Country filter** — drop cells outside Thailand's land border (`thailand_boundary.is_in_thailand`). The training-time data still spans the full BBOX so the model learns regional patterns, but the dashboard is Thailand-focused.
+4. **Per-day cap** — within each predicted day, sort cells by `historical_fire_count_30d × 1000 + rounding_proximity` (most-active first, with confidence proxy as tiebreaker) and keep only `MAX_CELLS_PER_DAY` (default 100). Without this cap the regression model's bunching in days 2-3 produced ~500-cell single-day stacks that don't resemble GISTDA's observed ~74/day. Top-N keeps the dashboard at operational scale.
+
+Set `MAX_CELLS_PER_DAY=0` to disable the cap if a researcher needs raw model output.
 
 ### Model selection
 

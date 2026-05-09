@@ -132,9 +132,19 @@ def get_urgency(days: int) -> UrgencyLevel:
 # aggregated over the 8 surrounding grid cells.
 # ─────────────────────────────────────────────
 def add_neighbor_features(daily: pd.DataFrame, grid_size: float = 0.1) -> pd.DataFrame:
-    """For each cell-day, sum fire_count and frp_sum over the 8 adjacent cells.
+    """Per-cell spatial aggregates over the surrounding grid.
 
-    Pure spatial aggregation of REAL FIRMS detections — no smoothing or
+    Two concentric rings of neighbours so the model sees both immediate and
+    regional context:
+      * `neighbor_fire_today` / `neighbor_frp_today` = sum across the 8
+        cells that share an edge or corner (3×3 box minus centre).
+      * `wide_neighbor_fire_today` / `wide_neighbor_frp_today` = sum across
+        the OUTER ring of the 5×5 box only (16 cells at distance 2 from
+        the centre). Separating the rings lets the model weight "fire one
+        cell over" differently from "fire two cells over"; lumping them
+        would smear a strong adjacent signal across a much larger area.
+
+    Pure aggregation of REAL FIRMS detections — no smoothing or
     interpolation. Cells without any neighbour activity get exact zero.
     """
     df = daily.copy()
@@ -145,36 +155,43 @@ def add_neighbor_features(daily: pd.DataFrame, grid_size: float = 0.1) -> pd.Dat
 
     df["neighbor_fire_today"] = 0.0
     df["neighbor_frp_today"] = 0.0
+    df["wide_neighbor_fire_today"] = 0.0
+    df["wide_neighbor_frp_today"] = 0.0
 
-    offsets = [
+    inner_offsets = [
         (-1, -1), (-1, 0), (-1, 1),
         (0, -1),           (0, 1),
         (1, -1),  (1, 0),  (1, 1),
     ]
+    # Outer ring of the 5×5 box: |dlat|=2 OR |dlon|=2, excluding the inner
+    # 3×3. 16 cells in total.
+    outer_offsets = [
+        (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2),
+        (-1, -2),                             (-1, 2),
+        ( 0, -2),                             ( 0, 2),
+        ( 1, -2),                             ( 1, 2),
+        ( 2, -2), ( 2, -1), ( 2, 0), ( 2, 1), ( 2, 2),
+    ]
 
-    for dlat, dlon in offsets:
-        # Shift each source row's coords by the *negative* offset so that the
-        # row's (lat_grid, lon_grid) now equals the TARGET cell that has this
-        # row as its (dlat, dlon) neighbour.
-        shifted = base.copy()
-        shifted["lat_grid"] = (shifted["lat_grid"] - dlat * grid_size).round(6)
-        shifted["lon_grid"] = (shifted["lon_grid"] - dlon * grid_size).round(6)
-        shifted = shifted.rename(
-            columns={"fire_count": "_nfire", "frp_sum": "_nfrp"}
-        )
-        merged = df.merge(
-            shifted[["lat_grid", "lon_grid", "date", "_nfire", "_nfrp"]],
-            on=["lat_grid", "lon_grid", "date"],
-            how="left",
-        )
-        df["neighbor_fire_today"] = (
-            df["neighbor_fire_today"].to_numpy()
-            + merged["_nfire"].fillna(0).to_numpy()
-        )
-        df["neighbor_frp_today"] = (
-            df["neighbor_frp_today"].to_numpy()
-            + merged["_nfrp"].fillna(0).to_numpy()
-        )
+    def _accumulate(offsets, fire_col, frp_col):
+        for dlat, dlon in offsets:
+            # Shift each source row's coords by the *negative* offset so the
+            # row's (lat_grid, lon_grid) now equals the TARGET cell that has
+            # this row as its (dlat, dlon) neighbour.
+            shifted = base.copy()
+            shifted["lat_grid"] = (shifted["lat_grid"] - dlat * grid_size).round(6)
+            shifted["lon_grid"] = (shifted["lon_grid"] - dlon * grid_size).round(6)
+            shifted = shifted.rename(columns={"fire_count": "_nfire", "frp_sum": "_nfrp"})
+            merged = df.merge(
+                shifted[["lat_grid", "lon_grid", "date", "_nfire", "_nfrp"]],
+                on=["lat_grid", "lon_grid", "date"],
+                how="left",
+            )
+            df[fire_col] = df[fire_col].to_numpy() + merged["_nfire"].fillna(0).to_numpy()
+            df[frp_col]  = df[frp_col].to_numpy()  + merged["_nfrp"].fillna(0).to_numpy()
+
+    _accumulate(inner_offsets, "neighbor_fire_today", "neighbor_frp_today")
+    _accumulate(outer_offsets, "wide_neighbor_fire_today", "wide_neighbor_frp_today")
 
     return df
 
@@ -254,6 +271,33 @@ def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
                 level=GROUP_KEYS, drop=True
             )
             df[f"neighbor_frp_sum_{w}d"] = rolled_n_frp.reset_index(
+                level=GROUP_KEYS, drop=True
+            )
+
+        # Fire-spread velocity: how is neighbour activity changing? A cell
+        # that just lit up (positive velocity) is at higher risk than one
+        # that's been smouldering for a week (zero velocity). Causal —
+        # uses today's value vs lag_3, no future leakage.
+        df["neighbor_fire_velocity_3d"] = (
+            df["neighbor_fire_today"].to_numpy()
+            - df["neighbor_fire_lag_3"].to_numpy()
+        )
+        df["neighbor_frp_velocity_3d"] = (
+            df["neighbor_frp_today"].to_numpy()
+            - df["neighbor_frp_lag_3"].to_numpy()
+        )
+
+    # ── 5×5 outer-ring neighbour lags / rolls (regional-scale fire signal) ──
+    # Treated separately from the inner 3×3 ring so the model can weight
+    # near vs far adjacency differently.
+    if "wide_neighbor_fire_today" in df.columns:
+        for lag in NEIGHBOR_LAGS:
+            df[f"wide_neighbor_fire_lag_{lag}"] = (
+                grp["wide_neighbor_fire_today"].shift(lag).fillna(0)
+            )
+        for w in NEIGHBOR_ROLLS:
+            rolled = grp["wide_neighbor_fire_today"].rolling(w, min_periods=1).sum()
+            df[f"wide_neighbor_fire_sum_{w}d"] = rolled.reset_index(
                 level=GROUP_KEYS, drop=True
             )
 
@@ -450,11 +494,20 @@ def _build_core_feature_list() -> List[str]:
         "n_satellites_today",
     ]
     # Spatial neighbour signals (always emitted by add_neighbor_features)
+    # Inner ring: 3×3 box minus centre (8 cells)
     cols += ["neighbor_fire_today", "neighbor_frp_today"]
     cols += [f"neighbor_fire_lag_{l}" for l in NEIGHBOR_LAGS]
     cols += [f"neighbor_frp_lag_{l}" for l in NEIGHBOR_LAGS]
     for w in NEIGHBOR_ROLLS:
         cols += [f"neighbor_fire_sum_{w}d", f"neighbor_frp_sum_{w}d"]
+    # Spread velocity: today's neighbour activity vs lag_3 — captures
+    # whether a fire is sweeping toward this cell.
+    cols += ["neighbor_fire_velocity_3d", "neighbor_frp_velocity_3d"]
+    # Outer ring: 5×5 box minus inner 3×3 (16 cells, regional scale)
+    cols += ["wide_neighbor_fire_today"]
+    cols += [f"wide_neighbor_fire_lag_{l}" for l in NEIGHBOR_LAGS]
+    for w in NEIGHBOR_ROLLS:
+        cols += [f"wide_neighbor_fire_sum_{w}d"]
     # Calendar signals
     cols += [
         "month_sin", "month_cos", "doy_sin", "doy_cos",
