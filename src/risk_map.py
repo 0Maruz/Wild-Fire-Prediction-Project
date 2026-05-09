@@ -17,6 +17,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from datetime import timedelta
+from typing import Dict, Optional
 from dotenv import load_dotenv
 
 from features import (
@@ -458,7 +459,96 @@ def build_predicted(df: pd.DataFrame, model, base_date, meta: dict):
 # WRITE GEOJSON (append-then-overwrite-current-base-date)
 # =========================================================
 
-def append_geojson(observed: pd.DataFrame, predicted: pd.DataFrame, base_date, thresholds: dict, metrics: dict):
+def _revalidate_predictions(features: list, daily_df: pd.DataFrame) -> dict:
+    """Tag each historical predicted feature with hit / miss / future based on
+    actual FIRMS observations for its `predicted_fire_date`.
+
+    A prediction is a *hit* when the cell had at least one FIRMS detection
+    on the predicted date OR within ±1 day of it (matching the model's
+    "accuracy within 1 day" headline metric). It's a *miss* when the
+    target date is past, has full FIRMS coverage, but the cell stayed
+    quiet. *future* predictions are kept untagged for the operator to see
+    as "still pending".
+
+    The caller passes the densified daily frame produced by
+    data_loader.load_and_prepare; we read fire_count > 0 from it as
+    ground truth.
+    """
+    if daily_df is None or daily_df.empty:
+        return {"hits": 0, "misses": 0, "future": 0, "hit_rate": None}
+
+    # Lookup: set of (lat_grid, lon_grid, date) tuples that had fire.
+    # Densified frame includes zero-fire rows, so explicitly filter.
+    fired = daily_df[daily_df["fire_count"] > 0]
+    obs_keys = set(zip(
+        fired["lat_grid"].round(6),
+        fired["lon_grid"].round(6),
+        pd.to_datetime(fired["date"]).dt.date,
+    ))
+
+    # Latest date with FIRMS coverage — anything after this we can't validate.
+    latest_observed = pd.to_datetime(daily_df["date"]).max().date()
+
+    # Per-snapshot tallies — operators want to know "how did the 2026-05-06
+    # call hold up?" not just "how do all calls ever made hold up?"
+    # Old snapshots may have been generated with relaxed filters or buggy
+    # logic and dragging them into a single overall rate hides the current
+    # model's real performance.
+    per_snapshot: Dict[str, Dict[str, int]] = {}
+
+    hits = misses = future = 0
+    for f in features:
+        props = f.get("properties", {})
+        if props.get("source") != "predicted":
+            continue
+        target_str = props.get("predicted_fire_date")
+        if not target_str:
+            continue
+        try:
+            target_date = pd.to_datetime(target_str).date()
+        except (ValueError, TypeError):
+            continue
+
+        bd = props.get("base_date") or "unknown"
+        bucket = per_snapshot.setdefault(bd, {"hits": 0, "misses": 0, "future": 0})
+
+        if target_date > latest_observed:
+            props["validation_status"] = "future"
+            future += 1
+            bucket["future"] += 1
+            continue
+
+        lat = round(float(props.get("lat", 0)), 6)
+        lon = round(float(props.get("lon", 0)), 6)
+        hit = any(
+            (lat, lon, target_date + timedelta(days=offset)) in obs_keys
+            for offset in (-1, 0, 1)
+        )
+        if hit:
+            props["validation_status"] = "hit"
+            hits += 1
+            bucket["hits"] += 1
+        else:
+            props["validation_status"] = "miss"
+            misses += 1
+            bucket["misses"] += 1
+
+    # Annotate each snapshot bucket with its own hit rate so the frontend
+    # doesn't have to recompute.
+    for bd, bucket in per_snapshot.items():
+        valid = bucket["hits"] + bucket["misses"]
+        bucket["hit_rate"] = round(bucket["hits"] / valid, 4) if valid > 0 else None
+
+    return {
+        "hits": hits,
+        "misses": misses,
+        "future": future,
+        "hit_rate": round(hits / (hits + misses), 4) if (hits + misses) > 0 else None,
+        "per_snapshot": per_snapshot,
+    }
+
+
+def append_geojson(observed: pd.DataFrame, predicted: pd.DataFrame, base_date, thresholds: dict, metrics: dict, daily_df: Optional[pd.DataFrame] = None):
     base_date_str = base_date.strftime("%Y-%m-%d")
 
     geojson = {"type": "FeatureCollection", "features": []}
@@ -559,6 +649,22 @@ def append_geojson(observed: pd.DataFrame, predicted: pd.DataFrame, base_date, t
             },
         })
 
+    # Retrospective validation: walk every predicted feature still in the
+    # GeoJSON (current snapshot + retained history) and tag with
+    # hit / miss / future against actual FIRMS observations from the
+    # densified daily frame. Lets the dashboard show "model called this
+    # cell to fire 3 days ago — did it actually burn?" at a glance.
+    if daily_df is not None:
+        validation_summary = _revalidate_predictions(geojson["features"], daily_df)
+        geojson["metadata"]["validation_summary"] = validation_summary
+        if validation_summary.get("hit_rate") is not None:
+            print(
+                f"Retrospective validation: {validation_summary['hits']} hits / "
+                f"{validation_summary['hits'] + validation_summary['misses']} validatable "
+                f"= {validation_summary['hit_rate']*100:.1f}% hit rate "
+                f"(±1 day window, {validation_summary['future']} still pending)"
+            )
+
     with open(GEOJSON_PATH, "w", encoding="utf-8") as f:
         json.dump(geojson, f, indent=2)
 
@@ -592,7 +698,11 @@ def run():
     predicted, base_date, thresholds = build_predicted(df, model, obs_date, meta)
 
     metrics = (meta.get("model") or {}).get("test_metrics", {}) or {}
-    append_geojson(observed, predicted, base_date, thresholds, metrics)
+    # Pass the densified daily frame so append_geojson can revalidate every
+    # predicted feature against actual FIRMS observations and tag it
+    # hit / miss / future. Empowers the dashboard's "did it actually burn?"
+    # comparison view.
+    append_geojson(observed, predicted, base_date, thresholds, metrics, daily_df=df)
 
     print("\n✅ FIRE DATE MAP UPDATED")
     print("Observed date :", obs_date)

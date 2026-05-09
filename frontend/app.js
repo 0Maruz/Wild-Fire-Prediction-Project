@@ -163,6 +163,7 @@ function displayData() {
 
   document.getElementById("baseDate").textContent = activeBaseDate;
   renderFreshness(activeBaseDate);
+  renderHitRate(activeBaseDate);
   predicted = predicted.filter(f => f.properties.base_date === activeBaseDate);
 
   // Province dropdown: discovered from this snapshot's cells. Empty-string
@@ -331,6 +332,45 @@ function populateProvinceFilter(provinceNames) {
 
   // Reflect current state if still valid; otherwise fall back to "all".
   sel.value = provinceNames.includes(previous) ? previous : "all";
+}
+
+// Render the retrospective hit-rate card for the active base_date snapshot.
+// Pulls per-snapshot stats from metadata.validation_summary.per_snapshot,
+// which risk_map.py populates by checking each prediction's predicted
+// fire date against actual FIRMS observations within ±1 day.
+function renderHitRate(activeBaseDate) {
+  const valueEl  = document.getElementById("hitrateValue");
+  const suffixEl = document.getElementById("hitrateSuffix");
+  const detailEl = document.getElementById("hitrateDetail");
+  if (!valueEl || !suffixEl || !detailEl) return;
+
+  const meta = (state.geojson && state.geojson.metadata) || {};
+  const perSnap = ((meta.validation_summary || {}).per_snapshot) || {};
+  const bucket = perSnap[activeBaseDate];
+
+  if (!bucket) {
+    valueEl.textContent = "—";
+    suffixEl.textContent = "no validation data";
+    detailEl.textContent = "Older snapshots may have been pruned by retention policy.";
+    return;
+  }
+
+  const hits   = bucket.hits | 0;
+  const misses = bucket.misses | 0;
+  const future = bucket.future | 0;
+  const validatable = hits + misses;
+
+  if (validatable === 0) {
+    valueEl.textContent = "—";
+    suffixEl.textContent = `${future} pending`;
+    detailEl.textContent = `All predicted dates are in the future; check back after ${future > 0 ? "FIRMS catches up" : "the next refresh"}.`;
+    return;
+  }
+
+  const pct = (hits / validatable) * 100;
+  valueEl.textContent = `${pct.toFixed(0)}%`;
+  suffixEl.textContent = `${hits} / ${validatable} hits`;
+  detailEl.textContent = `For ${activeBaseDate} · ±1 day window` + (future > 0 ? ` · ${future} still pending` : "");
 }
 
 function dateAdd(isoDate, days) {

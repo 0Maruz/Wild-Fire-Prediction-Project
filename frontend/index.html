@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
   <!-- Custom CSS -->
-  <link rel="stylesheet" href="style.css?v=6" />
+  <link rel="stylesheet" href="style.css?v=7" />
 </head>
 <body>
 
@@ -116,6 +116,21 @@
     <div class="metrics-note" id="metricsNote">From held-out test split (real time-based).</div>
   </div>
 
+  <!-- Retrospective hit rate (FIRMS ground truth) -->
+  <div class="section">
+    <h3>🎯 Hit Rate vs FIRMS</h3>
+    <div class="hitrate-card">
+      <div class="hitrate-headline">
+        <span id="hitrateValue">—</span>
+        <span class="hitrate-suffix" id="hitrateSuffix">no past predictions yet</span>
+      </div>
+      <div class="hitrate-detail" id="hitrateDetail">For this snapshot · ±1 day window</div>
+    </div>
+    <div class="metrics-note">
+      Each historical prediction is checked against the actual NASA FIRMS detections within ±1 day of its predicted fire date. "Hit" = the cell did burn near the predicted time.
+    </div>
+  </div>
+
   <!-- View Options -->
   <div class="section">
     <h3>🎨 Display Options</h3>
@@ -189,6 +204,6 @@
 <!-- Scripts -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

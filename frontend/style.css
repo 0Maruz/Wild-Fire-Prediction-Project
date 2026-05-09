@@ -358,6 +358,33 @@ html, body {
 
 .export-btn:hover  { background: var(--accent-soft); }
 
+.hitrate-card {
+  padding: 14px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.hitrate-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.hitrate-headline #hitrateValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.hitrate-suffix {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.hitrate-detail {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
 /* ===== Threshold + metrics notes ===== */
 
 .threshold-note,
