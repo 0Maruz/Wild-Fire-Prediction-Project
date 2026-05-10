@@ -18,7 +18,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2 — Python runtime serving FastAPI + the built SPA
 # =============================================================================
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim-bookworm AS runtime
 
 # rasterio depends on system GDAL/PROJ; LightGBM needs libgomp.
 # wget is in base; curl is for the health check.
