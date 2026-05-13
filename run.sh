@@ -22,6 +22,7 @@ cd "$SCRIPT_DIR"
 FETCH_FIRMS=0
 FETCH_WEATHER=0
 DO_TRAIN=1
+PREDICT_ONLY=0
 OPEN_BROWSER=0
 WEATHER_ARGS=()
 TRAIN_ARGS=()
@@ -45,6 +46,10 @@ Flags:
                          e.g. --weather-arg --limit-cells --weather-arg 50
   --no-train             Skip training; just start the servers using whatever
                          is already in outputs/.
+  --predict-only         Run train.py --predict-only: rebuild full_features from
+                         latest FIRMS (+ weather cache if present), refresh GeoJSON,
+                         leave the existing model .pkl unchanged. Overrides --no-train
+                         for the train step. Pair with --fresh / --weather for daily ops.
   --open                 Open the dashboard in the default browser when ready.
   --quick                Shortcut: forward --quick to train.py (~3-5 min run,
                          LightGBM only). Useful for iteration.
@@ -67,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --weather)      FETCH_WEATHER=1; shift ;;
     --weather-arg)  WEATHER_ARGS+=("$2"); shift 2 ;;
     --no-train)     DO_TRAIN=0; shift ;;
+    --predict-only) PREDICT_ONLY=1; shift ;;
     --open)         OPEN_BROWSER=1; shift ;;
     --quick)        TRAIN_ARGS+=("--quick"); shift ;;
     --api-port)     API_PORT="$2"; shift 2 ;;
@@ -147,8 +153,11 @@ if [[ $FETCH_WEATHER -eq 1 ]]; then
   (cd src && python fetch_weather.py "${WEATHER_ARGS[@]}")
 fi
 
-# ── Stage 3: train (loads real features → tunes → persists artefacts) ───
-if [[ $DO_TRAIN -eq 1 ]]; then
+# ── Stage 3: full train OR predict-only refresh (features + risk map) ───
+if [[ $PREDICT_ONLY -eq 1 ]]; then
+  echo "→ predict-only: refresh features + risk map (no model tuning) …"
+  (cd src && python train.py --predict-only "${TRAIN_ARGS[@]}")
+elif [[ $DO_TRAIN -eq 1 ]]; then
   echo "→ Training on real FIRMS data (+ ERA5 weather if cached) …"
   (cd src && python train.py "${TRAIN_ARGS[@]}")
 fi
