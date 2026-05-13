@@ -1,13 +1,13 @@
 {
-  "trained_at": "2026-05-09T14:09:26.925473+00:00",
+  "trained_at": "2026-05-13T01:03:28.350352+00:00",
   "data_source": "NASA FIRMS VIIRS NRT (real)",
   "earliest_date": "2025-01-31",
-  "latest_date": "2026-05-09",
+  "latest_date": "2026-05-12",
   "data_stale_days": 0,
   "data_is_stale": false,
-  "total_days": 464,
-  "total_active_cells": 9380,
-  "training_rows": 402128,
+  "total_days": 467,
+  "total_active_cells": 9405,
+  "training_rows": 403830,
   "grid_size": 0.1,
   "min_confidence": 0,
   "urban_filter_enabled": true,
@@ -45,6 +45,8 @@
     "active_days_30d",
     "frp_trend_1d",
     "frp_trend_3d",
+    "frp_trend_7d",
+    "fire_std_7d",
     "fire_count_today",
     "frp_sum_today",
     "bright_mean_today",
@@ -52,6 +54,9 @@
     "night_fire_count",
     "afternoon_fire_count",
     "n_satellites_today",
+    "fire_acceleration",
+    "frp_intensity_7d",
+    "night_fire_ratio",
     "neighbor_fire_today",
     "neighbor_frp_today",
     "neighbor_fire_lag_1",
@@ -67,11 +72,18 @@
     "neighbor_fire_velocity_3d",
     "neighbor_frp_velocity_3d",
     "wide_neighbor_fire_today",
+    "wide_neighbor_frp_today",
     "wide_neighbor_fire_lag_1",
     "wide_neighbor_fire_lag_3",
     "wide_neighbor_fire_lag_7",
+    "wide_neighbor_frp_lag_1",
+    "wide_neighbor_frp_lag_3",
+    "wide_neighbor_frp_lag_7",
     "wide_neighbor_fire_sum_3d",
+    "wide_neighbor_frp_sum_3d",
     "wide_neighbor_fire_sum_7d",
+    "wide_neighbor_frp_sum_7d",
+    "wide_neighbor_fire_velocity_3d",
     "month_sin",
     "month_cos",
     "doy_sin",
@@ -94,62 +106,63 @@
     "LOW": 7.0
   },
   "urgency_thresholds_note": "Fixed domain thresholds: CRITICAL=fire today, HIGH\u22642d, MEDIUM\u22644d, LOW\u22647d, NONE>7d. Quantile calibration was removed because it forced every active cell into a tier and made NONE structurally impossible.",
-  "best_model": "lightgbm",
+  "best_model": "xgboost",
   "model": {
-    "type": "lightgbm",
+    "type": "xgboost",
     "val_metrics": {
-      "mae_days": 1.9722,
-      "rmse_days": 2.3219,
-      "r2": -0.3191,
-      "accuracy_within_1day": 0.4001,
-      "cv_mae_days": 1.5235
+      "mae_days": 2.1333,
+      "rmse_days": 2.5062,
+      "r2": -0.5395,
+      "accuracy_within_1day": 0.3678,
+      "cv_mae_days": 1.6323
     },
     "test_metrics": {
-      "mae_days": 1.4649,
-      "rmse_days": 1.714,
-      "r2": 0.2775,
-      "accuracy_within_1day": 0.5163
+      "mae_days": 1.823,
+      "rmse_days": 2.1188,
+      "r2": -0.1054,
+      "accuracy_within_1day": 0.4083
     },
     "baseline_test_metrics": {
-      "mae_days": 1.7405,
-      "rmse_days": 2.0789,
-      "r2": -0.0629,
-      "accuracy_within_1day": 0.4458
+      "mae_days": 1.739,
+      "rmse_days": 2.0778,
+      "r2": -0.0631,
+      "accuracy_within_1day": 0.448
     },
-    "baseline_label_mean": 3.0773305260365724,
-    "mae_improvement_over_baseline_pct": 15.834530307382927,
-    "skill_check_passed": true,
+    "baseline_label_mean": 3.085485641647888,
+    "mae_improvement_over_baseline_pct": -4.830362277170779,
+    "skill_check_passed": false,
     "prediction_distribution_test": {
-      "min": 0.9414614437727372,
-      "p25": 3.5863618186805026,
-      "median": 3.9894051879482855,
-      "p75": 4.263287329111049,
-      "max": 5.026846089791426,
-      "std": 0.6992018909365972
+      "min": 1.6596601009368896,
+      "p25": 4.532677173614502,
+      "median": 4.761239051818848,
+      "p75": 4.815762519836426,
+      "max": 5.062507629394531,
+      "std": 0.4954790771007538
     },
-    "predictions_bunched": false,
+    "predictions_bunched": true,
     "best_params": {
-      "subsample": 0.8,
+      "subsample": 0.9,
       "reg_lambda": 1.0,
-      "reg_alpha": 1.0,
-      "num_leaves": 31,
-      "n_estimators": 600,
-      "min_child_samples": 100,
-      "learning_rate": 0.02,
-      "colsample_bytree": 0.8
+      "reg_alpha": 0.5,
+      "n_estimators": 1000,
+      "min_child_weight": 50,
+      "max_depth": 4,
+      "learning_rate": 0.01,
+      "gamma": 3.0,
+      "colsample_bytree": 0.6
     },
     "split_date_ranges": {
       "train": [
         "2025-01-31",
-        "2025-12-10"
+        "2025-12-11"
       ],
       "val": [
-        "2025-12-10",
-        "2026-01-26"
+        "2025-12-11",
+        "2026-01-27"
       ],
       "test": [
-        "2026-01-26",
-        "2026-05-08"
+        "2026-01-27",
+        "2026-05-11"
       ]
     },
     "note": "val_metrics: model selection on 20% val split. test_metrics: held-out 20% test split, evaluated before refit. Deployed artefact is refit on train+val."
@@ -157,104 +170,126 @@
   "all_candidates": {
     "lightgbm": {
       "best_params": {
-        "subsample": 0.8,
-        "reg_lambda": 1.0,
-        "reg_alpha": 1.0,
-        "num_leaves": 31,
-        "n_estimators": 600,
-        "min_child_samples": 100,
-        "learning_rate": 0.02,
-        "colsample_bytree": 0.8
+        "subsample": 0.9,
+        "reg_lambda": 0.5,
+        "reg_alpha": 10.0,
+        "num_leaves": 95,
+        "n_estimators": 700,
+        "min_split_gain": 0.2,
+        "min_child_samples": 200,
+        "max_depth": -1,
+        "learning_rate": 0.01,
+        "colsample_bytree": 1.0
       },
       "metrics": {
-        "mae_days": 1.9722,
-        "rmse_days": 2.3219,
-        "r2": -0.3191,
-        "accuracy_within_1day": 0.4001,
-        "cv_mae_days": 1.5235
+        "mae_days": 2.1794,
+        "rmse_days": 2.56,
+        "r2": -0.6063,
+        "accuracy_within_1day": 0.3606,
+        "cv_mae_days": 1.6418
+      }
+    },
+    "xgboost": {
+      "best_params": {
+        "subsample": 0.9,
+        "reg_lambda": 1.0,
+        "reg_alpha": 0.5,
+        "n_estimators": 1000,
+        "min_child_weight": 50,
+        "max_depth": 4,
+        "learning_rate": 0.01,
+        "gamma": 3.0,
+        "colsample_bytree": 0.6
+      },
+      "metrics": {
+        "mae_days": 2.1333,
+        "rmse_days": 2.5062,
+        "r2": -0.5395,
+        "accuracy_within_1day": 0.3678,
+        "cv_mae_days": 1.6323
       }
     }
   },
   "feature_importance_top": [
     {
-      "feature": "doy_sin",
-      "importance": 3461.0
+      "feature": "fire_std_7d",
+      "importance": 0.09468160569667816
     },
     {
-      "feature": "doy_cos",
-      "importance": 3097.0
+      "feature": "frp_intensity_7d",
+      "importance": 0.0802987664937973
     },
     {
-      "feature": "lat_grid",
-      "importance": 1427.0
+      "feature": "frp_sum_7d",
+      "importance": 0.0746840089559555
     },
     {
-      "feature": "lon_grid",
-      "importance": 1320.0
+      "feature": "fire_sum_7d",
+      "importance": 0.06418894231319427
     },
     {
-      "feature": "days_from_burn_peak",
-      "importance": 1092.0
+      "feature": "active_days_7d",
+      "importance": 0.041673313826322556
     },
     {
-      "feature": "days_since_last_fire",
-      "importance": 699.0
+      "feature": "neighbor_fire_sum_7d",
+      "importance": 0.036314647644758224
     },
     {
-      "feature": "tree_cover_pct_2000",
-      "importance": 641.0
+      "feature": "active_days_3d",
+      "importance": 0.03410201892256737
     },
     {
-      "feature": "distance_to_nearest_city_km",
-      "importance": 410.0
+      "feature": "wide_neighbor_fire_lag_1",
+      "importance": 0.03195460885763168
     },
     {
-      "feature": "tree_loss_pct_recent",
-      "importance": 314.0
+      "feature": "frp_max_7d",
+      "importance": 0.03194601461291313
     },
     {
-      "feature": "fire_days_per_year_so_far",
-      "importance": 308.0
-    },
-    {
-      "feature": "wide_neighbor_fire_sum_7d",
-      "importance": 297.0
-    },
-    {
-      "feature": "wide_neighbor_fire_today",
-      "importance": 249.0
-    },
-    {
-      "feature": "month_sin",
-      "importance": 232.0
-    },
-    {
-      "feature": "frp_sum_30d",
-      "importance": 205.0
-    },
-    {
-      "feature": "wide_neighbor_fire_sum_3d",
-      "importance": 198.0
-    },
-    {
-      "feature": "neighbor_frp_sum_3d",
-      "importance": 191.0
-    },
-    {
-      "feature": "neighbor_fire_today",
-      "importance": 189.0
+      "feature": "fire_sum_14d",
+      "importance": 0.03110228106379509
     },
     {
       "feature": "neighbor_fire_sum_3d",
-      "importance": 175.0
+      "importance": 0.030695941299200058
     },
     {
-      "feature": "wide_neighbor_fire_lag_7",
-      "importance": 173.0
+      "feature": "fire_sum_30d",
+      "importance": 0.030397046357393265
     },
     {
-      "feature": "neighbor_frp_sum_7d",
-      "importance": 172.0
+      "feature": "fire_sum_3d",
+      "importance": 0.022810522466897964
+    },
+    {
+      "feature": "days_since_last_fire",
+      "importance": 0.02093554101884365
+    },
+    {
+      "feature": "days_from_burn_peak",
+      "importance": 0.017025887966156006
+    },
+    {
+      "feature": "fire_days_per_year_so_far",
+      "importance": 0.014507363550364971
+    },
+    {
+      "feature": "doy_sin",
+      "importance": 0.014283527620136738
+    },
+    {
+      "feature": "frp_sum_14d",
+      "importance": 0.014030834659934044
+    },
+    {
+      "feature": "doy_cos",
+      "importance": 0.01381557248532772
+    },
+    {
+      "feature": "wide_neighbor_fire_sum_7d",
+      "importance": 0.01350980531424284
     }
   ]
 }
