@@ -3,16 +3,20 @@
 Pipeline:
     1. data_loader.load_and_prepare → daily cell-day frame
     2. features.build_features → lag/rolling/calendar features + label
-    3. Drop training-invalid rows (label = -1, no fire within horizon)
-    4. Chronological train / val / test split
+    3. ``--predict-only``: write ``full_features.parquet`` from latest FIRMS
+       (+ optional weather/tree-cover), validate columns vs ``dataset_info.json``,
+       run ``risk_map`` only — skips tuning and leaves the existing ``.pkl``.
+       Use for daily cron after a full train has produced the model contract.
+    4. Drop training-invalid rows (label = -1, no fire within horizon)
+    5. Chronological train / val / test split
        - train : first 60 %
        - val   : next  20 %  (used for model selection only)
        - test  : last  20 %  (held-out; never seen during tuning or selection)
-    5. model.select_best → tune RF / LightGBM / XGBoost on TimeSeriesSplit,
+    6. model.select_best → tune RF / LightGBM / XGBoost on TimeSeriesSplit,
        pick best val MAE
-    6. Refit best model on train+val, evaluate on held-out test set
-    7. Persist best model, feature CSV, and metadata
-    8. Trigger risk_map.run() to refresh the GeoJSON
+    7. Refit best model on train+val, evaluate on held-out test set
+    8. Persist best model, feature CSV, and metadata
+    9. Trigger risk_map.run() to refresh the GeoJSON
 """
 
 from __future__ import annotations
@@ -74,13 +78,22 @@ def _compute_sample_weights(
     dates: pd.Series,
     recency_halflife_days: float = 60.0,
 ) -> np.ndarray:
-    """Inverse-class-frequency × recency-decay sample weights.
+    """Inverse-class-frequency × recency-decay × ±1-day-boundary boost.
 
-    Class balance: each label value (1–7 days) gets weight ∝ 1/count so rare
-    near-term samples compete equally with abundant long-horizon ones.
-    Recency decay: exp(-days_ago / halflife) so recent observations are
-    favoured — the model tracks current seasonal/fire-weather state better.
-    Returns a 1-D float array normalized to unit mean.
+    Three components multiplied together:
+    1. Class balance: 1/count per label value so rare near-term rows compete
+       with abundant far-horizon rows.
+    2. Recency decay: exp(-days_ago / halflife) to track current conditions.
+       Halflife lowered from 90→60 days: the last 2 months of fire season
+       carry 2× the weight of 3-month-old data, which tightens the model's
+       focus on recent patterns without starving longer-term signal.
+    3. Boundary boost: rows at label values {0,1,2} get a 1.5× multiplier.
+       The ±1-day accuracy metric is most sensitive to predictions that fall
+       on one side or the other of day-1 and day-2 boundaries. Upweighting
+       these rows nudges the model to get those boundaries right, which
+       directly improves acc±1 without changing the MAE objective.
+
+    Returns a 1-D float array normalised to unit mean.
     """
     label_counts = y.value_counts()
     n_classes = len(label_counts)
@@ -92,7 +105,10 @@ def _compute_sample_weights(
     days_ago = (max_date - pd.to_datetime(dates)).dt.days.to_numpy().astype(float)
     sw_recency = np.exp(-days_ago / max(recency_halflife_days, 1.0))
 
-    sw = sw_class * sw_recency
+    # ±1-day boundary boost: upweight label 0, 1, 2 (imminent fires)
+    boundary_boost = np.where(y.to_numpy() <= 2, 1.5, 1.0)
+
+    sw = sw_class * sw_recency * boundary_boost
     mean_sw = float(sw.mean())
     if mean_sw > 0:
         sw /= mean_sw
@@ -151,11 +167,18 @@ def chronological_split(
 
 
 def main(
+<<<<<<< HEAD
     # 80 iters × 5 splits = 400 candidate fits per model. With the broader
     # regularisation grid added in model.py, more samples are needed to find
     # the sweet spot. Each LGB fit is ~3-5 s on the current dataset, so the
     # full run is ~25-35 min — acceptable for a daily cron.
     n_iter: int = 80,
+=======
+    # 100 iters × 5 splits = 500 candidate fits per model. Increased from 80
+    # to give the broader regularisation grid more coverage — each LGB fit is
+    # ~3-5 s so the full run is ~30-40 min, acceptable for a daily cron.
+    n_iter: int = 100,
+>>>>>>> a46f8c960bf16b552f9b279aabc6145f56a0f4d0
     n_splits: int = 5,
     val_fraction: float = 0.2,
     test_fraction: float = 0.2,
@@ -171,6 +194,7 @@ def main(
     only: Optional[Tuple[str, ...]] = ("lightgbm", "xgboost"),
     skip_risk_map: bool = False,
     random_state: int = 42,
+    predict_only: bool = False,
 ) -> dict:
     load_dotenv()
     p = _paths()
@@ -266,6 +290,53 @@ def main(
         compression_level=10,
     )
     log.info("Saved feature dataset → %s", feature_path)
+
+    if predict_only:
+        model_path = os.path.join(p["model_dir"], "lgbm_fire_date_model.pkl")
+        if not os.path.isfile(model_path):
+            raise RuntimeError(
+                "predict-only requires an existing trained model at "
+                f"{model_path}. Run a full `python train.py` once first."
+            )
+        meta_path = os.path.join(p["meta_dir"], "dataset_info.json")
+        if os.path.isfile(meta_path):
+            with open(meta_path, encoding="utf-8") as f:
+                meta_prev = json.load(f)
+            feats_required = meta_prev.get("features") or []
+            missing = [c for c in feats_required if c not in feats_sorted.columns]
+            if missing:
+                raise RuntimeError(
+                    "predict-only: refreshed features are missing "
+                    f"{len(missing)} column(s) the deployed model expects "
+                    f"(e.g. {missing[:10]}{'…' if len(missing) > 10 else ''}). "
+                    "Typical cause: weather/tree-cover presence changed vs last "
+                    "train — run full train.py after updating caches."
+                )
+        else:
+            log.warning(
+                "No dataset_info.json — cannot verify feature contract; "
+                "risk_map will infer columns. Run full train once for metadata."
+            )
+
+        log.info(
+            "==== predict-only: skipped tuning; existing model unchanged ===="
+        )
+        if not skip_risk_map:
+            log.info("==== refresh risk map ====")
+            try:
+                from risk_map import run as generate_risk_map
+
+                generate_risk_map()
+            except Exception as exc:
+                log.warning("risk_map.run() failed: %s", exc)
+        return {
+            "mode": "predict_only",
+            "feature_path": feature_path,
+            "latest_date": str(feats_sorted["date"].max()),
+            "earliest_date": str(feats_sorted["date"].min()),
+            "model_path": model_path,
+            "data_stale_days": int(stale_days),
+        }
 
     log.info("==== STEP 3: filter to labelled rows ====")
     train_pool = feats[feats["days_until_fire"] >= 0].copy()
@@ -409,12 +480,12 @@ def main(
         best_params=best_params,
         X=full_X,
         y=full_y,
-        n_ensemble=5,
+        n_ensemble=11,
         base_seed=random_state,
         sample_weight=full_sw,
     )
     log.info(
-        "Ensemble of 5 %s models fit on %d rows (train+val) with sample weights.",
+        "Ensemble of 11 %s models fit on %d rows (train+val) with sample weights.",
         best_name, len(full_X),
     )
 
@@ -517,7 +588,11 @@ def main(
 
 def _cli() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train fire-date prediction model")
+<<<<<<< HEAD
     p.add_argument("--n-iter", type=int, default=80, help="RandomizedSearchCV iterations (default 80)")
+=======
+    p.add_argument("--n-iter", type=int, default=100, help="RandomizedSearchCV iterations (default 100)")
+>>>>>>> a46f8c960bf16b552f9b279aabc6145f56a0f4d0
     p.add_argument("--n-splits", type=int, default=5, help="TimeSeriesSplit folds")
     p.add_argument("--val-fraction", type=float, default=0.2)
     p.add_argument("--test-fraction", type=float, default=0.2)
@@ -538,6 +613,12 @@ def _cli() -> argparse.Namespace:
         help="Fast iteration: --n-iter 10 --n-splits 3 --only lightgbm (~3-5 min)",
     )
     p.add_argument("--skip-risk-map", action="store_true")
+    p.add_argument(
+        "--predict-only",
+        action="store_true",
+        help="Reload FIRMS (+ caches), rebuild full_features.parquet, run risk_map "
+        "only — no tuning, model .pkl unchanged. Requires a prior full train.",
+    )
     return p.parse_args()
 
 
@@ -558,4 +639,5 @@ if __name__ == "__main__":
         min_confidence=args.min_confidence,
         only=only,
         skip_risk_map=args.skip_risk_map,
+        predict_only=args.predict_only,
     )

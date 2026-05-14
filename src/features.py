@@ -426,6 +426,50 @@ def add_cumulative_fire_rate(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_season_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-cell within-season cumulative fire count and days into current burn season.
+
+    Two features that capture the seasonal state independently of the
+    rolling windows (which are fixed at 3/7/14/30 days):
+
+    ``season_fire_count_so_far``: cumulative fire detections for this cell
+    since the start of the current Thailand burn season (Jan 1). Resets
+    each calendar year. Causal — uses only rows before the current date.
+    Cells that have already burned heavily this season are approaching
+    exhaustion; cells with zero burns are in a build-up phase. Both patterns
+    matter for predicting the NEXT fire date.
+
+    ``days_into_burn_season``: for Jan–Apr rows, how many days since Jan 1;
+    for other months, 0. Gives the model a monotonic within-season clock that
+    the cyclic doy_sin/doy_cos can't express cleanly.
+    """
+    df = _ensure_sorted(df).copy()
+    dt = pd.to_datetime(df["date"])
+
+    # Season year = calendar year (Thailand burn season Jan–Apr)
+    df["_season_year"] = dt.dt.year
+
+    # Days into burn season (Jan 1 = 1, non-season months = 0)
+    in_season = dt.dt.month.between(1, 4)
+    df["days_into_burn_season"] = np.where(
+        in_season,
+        dt.dt.dayofyear,
+        0,
+    ).astype(float)
+
+    # Cumulative fires since Jan 1 of the current year, per cell, causal
+    fire_flag = (df["fire_count"].fillna(0) > 0).astype(float)
+    year_grp = fire_flag.groupby([df["lat_grid"], df["lon_grid"], df["_season_year"]])
+    # cumsum then shift(1) → fires BEFORE this row (no leakage)
+    cum_fires = year_grp.cumsum().groupby(
+        [df["lat_grid"], df["lon_grid"], df["_season_year"]]
+    ).shift(1).fillna(0)
+    df["season_fire_count_so_far"] = cum_fires.to_numpy().astype(float)
+
+    df.drop(columns=["_season_year"], inplace=True)
+    return df
+
+
 def add_urban_distance(df: pd.DataFrame) -> pd.DataFrame:
     """Per-cell great-circle distance to the nearest curated Thai urban centre.
 
@@ -444,6 +488,102 @@ def add_urban_distance(df: pd.DataFrame) -> pd.DataFrame:
     )
     cells["distance_to_nearest_city_km"] = urban_dist
     df = df.merge(cells, on=["lat_grid", "lon_grid"], how="left")
+    return df
+
+
+def add_fire_recurrence_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-cell fire periodicity and same-day-of-year historical signal.
+
+    New features:
+    ``median_fire_gap``: expanding-window median days between consecutive
+    fires for this cell. Prior = 30 days when history is too short.
+
+    ``days_since_last_fire_norm``: days_since_last_fire / median_fire_gap.
+    < 1 means "due soon"; > 2 means "overdue relative to typical cycle".
+
+    ``same_week_fire_last_year``: binary — did this cell have a fire in the
+    same ±7-day window of the previous calendar year? Strong seasonal anchor.
+
+    ``fire_count_same_month_hist``: average fires for this cell in the same
+    calendar month across prior years (causal: shifted by 1 year).
+    """
+    df = _ensure_sorted(df).copy()
+    dt = pd.to_datetime(df["date"])
+
+    df["_fire_flag"] = (df["fire_count"].fillna(0) > 0).astype(int)
+    df["_doy"] = dt.dt.dayofyear
+    df["_year"] = dt.dt.year
+    df["_month"] = dt.dt.month
+    df["_row_date"] = dt
+
+    # ── expanding median inter-fire gap ──
+    prev_fire_date = (
+        df.where(df["_fire_flag"] == 1)
+        .groupby(GROUP_KEYS)["_row_date"]
+        .shift(1)
+    )
+    df["_gap_days"] = (df["_row_date"] - prev_fire_date).dt.days
+
+    def _expanding_gap_med(grp):
+        ser = grp["_gap_days"].where(grp["_fire_flag"] == 1)
+        return ser.expanding(min_periods=2).median().ffill()
+
+    gap_med = df.groupby(GROUP_KEYS, group_keys=False).apply(_expanding_gap_med)
+    df["median_fire_gap"] = gap_med.to_numpy()
+    df["median_fire_gap"] = df["median_fire_gap"].fillna(30.0)
+
+    # Normalised dry streak
+    df["days_since_last_fire_norm"] = (
+        df.get("days_since_last_fire", pd.Series(0, index=df.index))
+        / df["median_fire_gap"].clip(lower=1.0)
+    ).clip(upper=10.0)
+
+    # ── same ±7-day window, previous calendar year ──
+    fire_rows = df[df["_fire_flag"] == 1][["lat_grid", "lon_grid", "_year", "_doy"]].copy()
+    expanded = []
+    for offset in range(-7, 8):
+        tmp = fire_rows.copy()
+        tmp["_doy"] = (tmp["_doy"] + offset - 1) % 365 + 1
+        expanded.append(tmp)
+    fire_window = pd.concat(expanded, ignore_index=True).drop_duplicates()
+    fire_window["_had_fire_window"] = 1
+
+    df["_prev_year"] = df["_year"] - 1
+    df = df.merge(
+        fire_window.rename(columns={"_year": "_prev_year"})[
+            ["lat_grid", "lon_grid", "_prev_year", "_doy", "_had_fire_window"]
+        ],
+        on=["lat_grid", "lon_grid", "_prev_year", "_doy"],
+        how="left",
+    )
+    df["same_week_fire_last_year"] = df["_had_fire_window"].fillna(0).astype(float)
+
+    # ── historical average fire count per month (prior years only) ──
+    monthly = (
+        df[df["_fire_flag"] == 1]
+        .groupby(["lat_grid", "lon_grid", "_year", "_month"])
+        .size()
+        .reset_index(name="_mf")
+    )
+    monthly = monthly.sort_values(["lat_grid", "lon_grid", "_month", "_year"])
+    monthly["_hist_mean"] = (
+        monthly.groupby(["lat_grid", "lon_grid", "_month"])["_mf"]
+        .expanding()
+        .mean()
+        .shift(1)
+        .reset_index(level=[0, 1, 2], drop=True)
+    )
+
+    df = df.merge(
+        monthly[["lat_grid", "lon_grid", "_year", "_month", "_hist_mean"]],
+        on=["lat_grid", "lon_grid", "_year", "_month"],
+        how="left",
+    )
+    df["fire_count_same_month_hist"] = df["_hist_mean"].fillna(0).astype(float)
+
+    # Drop temp columns
+    drop_cols = [c for c in df.columns if c.startswith("_")]
+    df.drop(columns=drop_cols, errors="ignore", inplace=True)
     return df
 
 
@@ -493,7 +633,9 @@ def build_features(
     df = add_calendar_features(df)
     df = add_dry_streak(df)
     df = add_cumulative_fire_rate(df)
+    df = add_season_features(df)
     df = add_urban_distance(df)
+    df = add_fire_recurrence_features(df)
     df = make_label_days_until_fire(df, horizon=horizon)
     log.info(
         "Built features for %d rows, %d positive labels (fire within %d days)",
@@ -559,6 +701,13 @@ def _build_core_feature_list() -> List[str]:
         "distance_to_nearest_city_km",  # static, spatial
         "fire_days_per_year_so_far",    # expanding-window, no leakage
         "days_since_last_fire",         # causal dry-streak
+        "season_fire_count_so_far",     # within-season cumulative fires (causal)
+        "days_into_burn_season",        # monotonic within-season clock
+        # Fire recurrence / periodicity features (causal)
+        "median_fire_gap",              # expanding median inter-fire gap (days)
+        "days_since_last_fire_norm",    # dry streak / median gap ratio
+        "same_week_fire_last_year",     # binary: fire in ±7d window last year
+        "fire_count_same_month_hist",   # avg fires this month in prior years
     ]
     # Hansen GFC vegetation context — only emitted when the tree-cover
     # cache exists (resolve_features filters by actual presence). Tells
