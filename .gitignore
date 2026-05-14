@@ -59,3 +59,5 @@ outputs/**
 src.zip
 Science-Project/
 *.tar.gz
+ag.zip
+outputs/features/full_features.parquet
