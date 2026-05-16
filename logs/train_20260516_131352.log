@@ -1,0 +1,102 @@
+2026-05-16 13:13:53,312 | INFO | train | ==== STEP 1: load + grid raw FIRMS data ====
+2026-05-16 13:13:53,312 | INFO | data_loader | Loading 6 FIRMS file(s)
+2026-05-16 13:13:53,449 | INFO | data_loader | Loaded 451523 raw hotspot rows
+2026-05-16 13:13:54,084 | INFO | data_loader | Capped FRP at q0.999=202.6, dropped 452 rows
+2026-05-16 13:13:54,093 | INFO | data_loader | After cleaning: 451071 rows
+2026-05-16 13:13:54,565 | INFO | data_loader | Urban filter (buffer=0.0 km): dropped 383 / 451071 hotspots
+2026-05-16 13:13:54,721 | INFO | data_loader | Aggregated to 110814 cell-day rows across 9479 cells
+2026-05-16 13:13:57,224 | INFO | data_loader | Densified 9479 active cells × 470 days = 4455130 rows
+2026-05-16 13:13:58,740 | INFO | data_loader | Merged Hansen tree cover: 4455130 / 4455130 rows have tree_cover values
+2026-05-16 13:14:01,206 | INFO | data_loader | Merged weather: 1693065 / 4455130 rows have real ERA5 values
+2026-05-16 13:14:01,478 | INFO | train | ==== STEP 2: feature engineering ====
+/home/qomaru/Science-Project-version-3/src/features.py:328: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_fire_sum_{w}d"] = _past_roll(df, "wide_neighbor_fire_today", w, "sum")   # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:329: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df["wide_neighbor_fire_velocity_3d"] = (
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:343: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_today"] = df[col].fillna(0)
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:343: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_today"] = df[col].fillna(0)
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:343: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_today"] = df[col].fillna(0)
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:343: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_today"] = df[col].fillna(0)
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:343: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_today"] = df[col].fillna(0)
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:345: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:347: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
+2026-05-16 13:19:17,414 | INFO | features | Built features for 4455130 rows, 407447 positive labels (fire within 7 days)
+2026-05-16 13:19:39,186 | INFO | train | Saved feature dataset → /home/qomaru/Science-Project-version-3/outputs/features/full_features.parquet
+2026-05-16 13:19:39,195 | INFO | train | ==== STEP 3: build binary label (fire within 3 days?) ====
+2026-05-16 13:19:42,449 | INFO | train | Class distribution: positives=236657 (5.31%)  negatives=4218473  (target: fire ∈ {1..3} days)
+2026-05-16 13:19:42,449 | INFO | train | ==== STEP 4: chronological train / val / test split ====
+2026-05-16 13:19:54,899 | INFO | train | Split date ranges:
+2026-05-16 13:19:55,214 | INFO | train |   train : 2025-01-31 → 2025-11-08  (2673078 rows)
+2026-05-16 13:19:55,314 | INFO | train |   val   : 2025-11-09 → 2026-02-10  (891026 rows)
+2026-05-16 13:19:55,415 | INFO | train |   test  : 2026-02-11 → 2026-05-15  (891026 rows)

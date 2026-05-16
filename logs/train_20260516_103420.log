@@ -1,0 +1,164 @@
+2026-05-16 10:34:23,361 | INFO | train | Quick mode: n_iter=12, n_splits=3
+2026-05-16 10:34:23,366 | INFO | train | ==== STEP 1: load + grid raw FIRMS data ====
+2026-05-16 10:34:23,367 | INFO | data_loader | Loading 6 FIRMS file(s)
+2026-05-16 10:34:23,661 | INFO | data_loader | Loaded 451523 raw hotspot rows
+2026-05-16 10:34:25,451 | INFO | data_loader | Capped FRP at q0.999=202.6, dropped 452 rows
+2026-05-16 10:34:25,480 | INFO | data_loader | After cleaning: 451071 rows
+2026-05-16 10:34:26,591 | INFO | data_loader | Urban filter (buffer=0.0 km): dropped 383 / 451071 hotspots
+2026-05-16 10:34:27,155 | INFO | data_loader | Aggregated to 110814 cell-day rows across 9479 cells
+2026-05-16 10:34:34,540 | INFO | data_loader | Densified 9479 active cells × 470 days = 4455130 rows
+2026-05-16 10:34:38,629 | INFO | data_loader | Merged Hansen tree cover: 4455130 / 4455130 rows have tree_cover values
+2026-05-16 10:34:39,047 | INFO | train | ==== STEP 2: feature engineering ====
+/home/qomaru/Science-Project-version-3/src/features.py:328: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_fire_sum_{w}d"] = _past_roll(df, "wide_neighbor_fire_today", w, "sum")   # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:329: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df["wide_neighbor_fire_velocity_3d"] = (
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+2026-05-16 10:43:08,909 | INFO | features | Built features for 4455130 rows, 407447 positive labels (fire within 7 days)
+2026-05-16 10:43:27,143 | INFO | train | Saved feature dataset → /home/qomaru/Science-Project-version-3/outputs/features/full_features.parquet
+2026-05-16 10:43:27,144 | INFO | train | ==== STEP 3: filter to labelled rows ====
+2026-05-16 10:43:27,754 | INFO | train | Label distribution:
+days_until_fire
+1    109980
+2     69043
+3     57634
+4     49208
+5     44022
+6     40388
+7     37172
+2026-05-16 10:43:27,754 | INFO | train | ==== STEP 4: chronological train / val / test split ====
+2026-05-16 10:43:28,360 | INFO | train | Split date ranges:
+2026-05-16 10:43:28,390 | INFO | train |   train : 2025-01-31 → 2025-12-13  (244468 rows)
+2026-05-16 10:43:28,399 | INFO | train |   val   : 2025-12-13 → 2026-01-27  (81489 rows)
+2026-05-16 10:43:28,410 | INFO | train |   test  : 2026-01-27 → 2026-05-14  (81490 rows)
+2026-05-16 10:43:28,410 | INFO | train | Using 134 features
+2026-05-16 10:43:28,582 | INFO | train | ==== STEP 4b: compute sample weights (short-horizon emphasis) ====
+2026-05-16 10:43:28,636 | INFO | train | Sample weights: min=0.008 max=13.361 mean=1.000
+2026-05-16 10:43:28,636 | INFO | train | ==== STEP 5: LightGBM tuning (BayesSearchCV, n_iter=12, n_splits=3, gap=7) ====
+2026-05-16 10:58:01,005 | INFO | train | ⏱️  Tuning time: 872.4 seconds
+2026-05-16 10:58:01,005 | INFO | train | Best params: {'colsample_bytree': 0.8, 'learning_rate': 0.01, 'max_depth': 6, 'min_child_samples': 50, 'n_estimators': 1500, 'num_leaves': 63, 'reg_alpha': 1.0, 'reg_lambda': 10.0, 'subsample': 0.8}
+2026-05-16 10:58:01,005 | INFO | train | Best CV score (neg-MAE): -1.5049
+2026-05-16 10:58:01,005 | INFO | train | ==== STEP 6: refit ensemble on train+val with early stopping ====
+2026-05-16 10:58:25,450 | INFO | train | ⏱️  Ensemble refit time: 24.2 seconds (10 models)
+2026-05-16 10:58:25,450 | INFO | train | ==== STEP 7: held-out test evaluation ====
+2026-05-16 10:58:25,933 | INFO | train | Overall test metrics: {'mae': 1.7671, 'rmse': 2.1222, 'r2': -0.0821, 'acc_within_1': 0.4368, 'acc_exact': 0.1416}
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=7, min_child_samples=20, n_estimators=1000, num_leaves=63, reg_alpha=0.1, reg_lambda=10.0, subsample=0.6; total time=  11.8s
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=7, min_child_samples=20, n_estimators=1000, num_leaves=63, reg_alpha=0.1, reg_lambda=10.0, subsample=0.6; total time=  22.6s
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=7, min_child_samples=20, n_estimators=1000, num_leaves=63, reg_alpha=0.1, reg_lambda=10.0, subsample=0.6; total time=  35.6s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=1500, num_leaves=31, reg_alpha=0, reg_lambda=1.0, subsample=0.8; total time=  16.5s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=1500, num_leaves=31, reg_alpha=0, reg_lambda=1.0, subsample=0.8; total time=  35.2s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=1500, num_leaves=31, reg_alpha=0, reg_lambda=1.0, subsample=0.8; total time=  53.0s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=4, min_child_samples=50, n_estimators=500, num_leaves=63, reg_alpha=0, reg_lambda=10.0, subsample=0.8; total time=   5.5s
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=4, min_child_samples=50, n_estimators=500, num_leaves=63, reg_alpha=0, reg_lambda=10.0, subsample=0.8; total time=  10.0s
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=4, min_child_samples=50, n_estimators=500, num_leaves=63, reg_alpha=0, reg_lambda=10.0, subsample=0.8; total time=  14.9s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.01, max_depth=6, min_child_samples=100, n_estimators=1000, num_leaves=31, reg_alpha=1.0, reg_lambda=10.0, subsample=0.9; total time=   7.5s
+[CV] END colsample_bytree=0.8, learning_rate=0.01, max_depth=6, min_child_samples=100, n_estimators=1000, num_leaves=31, reg_alpha=1.0, reg_lambda=10.0, subsample=0.9; total time=  16.4s
+[CV] END colsample_bytree=0.8, learning_rate=0.01, max_depth=6, min_child_samples=100, n_estimators=1000, num_leaves=31, reg_alpha=1.0, reg_lambda=10.0, subsample=0.9; total time=  26.1s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.02, max_depth=6, min_child_samples=100, n_estimators=1500, num_leaves=127, reg_alpha=0.1, reg_lambda=1.0, subsample=0.8; total time=  18.7s
+[CV] END colsample_bytree=0.8, learning_rate=0.02, max_depth=6, min_child_samples=100, n_estimators=1500, num_leaves=127, reg_alpha=0.1, reg_lambda=1.0, subsample=0.8; total time=  34.1s
+[CV] END colsample_bytree=0.8, learning_rate=0.02, max_depth=6, min_child_samples=100, n_estimators=1500, num_leaves=127, reg_alpha=0.1, reg_lambda=1.0, subsample=0.8; total time=  47.4s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=4, min_child_samples=20, n_estimators=1500, num_leaves=63, reg_alpha=0.1, reg_lambda=1.0, subsample=0.9; total time=  16.2s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=4, min_child_samples=20, n_estimators=1500, num_leaves=63, reg_alpha=0.1, reg_lambda=1.0, subsample=0.9; total time=  33.4s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=4, min_child_samples=20, n_estimators=1500, num_leaves=63, reg_alpha=0.1, reg_lambda=1.0, subsample=0.9; total time=  48.0s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=1000, num_leaves=63, reg_alpha=0.1, reg_lambda=1.0, subsample=0.9; total time=  10.9s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=1000, num_leaves=63, reg_alpha=0.1, reg_lambda=1.0, subsample=0.9; total time=  22.0s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=1000, num_leaves=63, reg_alpha=0.1, reg_lambda=1.0, subsample=0.9; total time=  32.4s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=800, num_leaves=31, reg_alpha=0.1, reg_lambda=0.1, subsample=0.8; total time=   9.3s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=800, num_leaves=31, reg_alpha=0.1, reg_lambda=0.1, subsample=0.8; total time=  17.2s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=5, min_child_samples=100, n_estimators=800, num_leaves=31, reg_alpha=0.1, reg_lambda=0.1, subsample=0.8; total time=  25.8s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=7, min_child_samples=50, n_estimators=800, num_leaves=31, reg_alpha=0, reg_lambda=1.0, subsample=0.8; total time=  10.1s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=7, min_child_samples=50, n_estimators=800, num_leaves=31, reg_alpha=0, reg_lambda=1.0, subsample=0.8; total time=  19.1s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=7, min_child_samples=50, n_estimators=800, num_leaves=31, reg_alpha=0, reg_lambda=1.0, subsample=0.8; total time=  27.7s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=6, min_child_samples=20, n_estimators=1000, num_leaves=31, reg_alpha=0, reg_lambda=0.1, subsample=0.9; total time=  13.1s
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=6, min_child_samples=20, n_estimators=1000, num_leaves=31, reg_alpha=0, reg_lambda=0.1, subsample=0.9; total time=  25.8s
+[CV] END colsample_bytree=0.6, learning_rate=0.05, max_depth=6, min_child_samples=20, n_estimators=1000, num_leaves=31, reg_alpha=0, reg_lambda=0.1, subsample=0.9; total time=  35.6s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.01, max_depth=6, min_child_samples=50, n_estimators=1500, num_leaves=63, reg_alpha=1.0, reg_lambda=10.0, subsample=0.8; total time=   9.5s
+[CV] END colsample_bytree=0.8, learning_rate=0.01, max_depth=6, min_child_samples=50, n_estimators=1500, num_leaves=63, reg_alpha=1.0, reg_lambda=10.0, subsample=0.8; total time=  27.0s
+[CV] END colsample_bytree=0.8, learning_rate=0.01, max_depth=6, min_child_samples=50, n_estimators=1500, num_leaves=63, reg_alpha=1.0, reg_lambda=10.0, subsample=0.8; total time=  41.6s
+Fitting 3 folds for each of 1 candidates, totalling 3 fits
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=7, min_child_samples=20, n_estimators=500, num_leaves=127, reg_alpha=1.0, reg_lambda=0.1, subsample=0.9; total time=   4.2s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=7, min_child_samples=20, n_estimators=500, num_leaves=127, reg_alpha=1.0, reg_lambda=0.1, subsample=0.9; total time=  10.4s
+[CV] END colsample_bytree=0.8, learning_rate=0.05, max_depth=7, min_child_samples=20, n_estimators=500, num_leaves=127, reg_alpha=1.0, reg_lambda=0.1, subsample=0.9; total time=  15.3s
+
+============================================================================
+PER-DAY PERFORMANCE (held-out test set)
+============================================================================
+┌─────┬───────┬───────┬───────┬──────────┬──────────┬──────────┬─────────┐
+│ Day │  MAE  │ RMSE  │  R²   │ Acc±1day │ Hotspots │ Hit Rate │  Bias   │
+├─────┼───────┼───────┼───────┼──────────┼──────────┼──────────┼─────────┤
+│  1  │  2.00 │  2.00 │  0.00 │    0.0%  │  17127   │    0.0%  │  +2.00  │2026-05-16 10:58:25,942 | INFO | train | Baseline (predict 3.10) MAE=1.772 → improvement +0.29%
+2026-05-16 10:58:25,959 | INFO | train | ==== STEP 8: persist artifacts ====
+2026-05-16 10:58:25,976 | INFO | train | Saved model → /home/qomaru/Science-Project-version-3/outputs/models/lgbm_fire_date_model.pkl
+2026-05-16 10:58:25,984 | INFO | train | ==== STEP 9: render PNG training report ====
+2026-05-16 10:58:26,353 | INFO | matplotlib.font_manager | Failed to extract font properties from /usr/share/fonts/truetype/noto/NotoColorEmoji.ttf: Can not load face (unknown file format; error code 0x2)
+2026-05-16 10:58:26,451 | INFO | matplotlib.font_manager | generated new fontManager
+2026-05-16 10:59:14,535 | INFO | train | ⏱️  Total training time: 1491.2 seconds
+2026-05-16 10:59:15,183 | INFO | train | Saved metadata → /home/qomaru/Science-Project-version-3/outputs/metadata/dataset_info.json
+2026-05-16 10:59:15,183 | INFO | train | ==== STEP 10: refresh risk map ====
+
+│  2  │  1.00 │  1.00 │  0.00 │  100.0%  │  13696   │    0.0%  │  +1.00  │
+│  3  │  0.00 │  0.01 │  0.00 │  100.0%  │  11540   │    0.0%  │  +0.00  │
+│  4  │  1.00 │  1.00 │  0.00 │  100.0%  │  10355   │    0.0%  │  -1.00  │
+│  5  │  2.00 │  2.00 │  0.00 │    0.0%  │   9876   │    0.0%  │  -2.00  │
+│  6  │  3.00 │  3.00 │  0.00 │    0.0%  │   9533   │    0.0%  │  -3.00  │
+│  7  │  4.00 │  4.00 │  0.00 │    0.0%  │   9363   │    0.0%  │  -4.00  │
+└─────┴───────┴───────┴───────┴──────────┴──────────┴──────────┴─────────┘
+
+Overall: MAE=1.767  RMSE=2.122  R²=-0.082  Acc±1=43.68%  Exact=14.16%
+Best day: 3 (MAE=0.005)  |  Worst day: 7 (MAE=3.998)
+
+📊 Training report saved to /home/qomaru/Science-Project-version-3/outputs/metadata/training_report.png
+⏱️  Total training time: 1491.2 seconds
+🔄 Loading assets...
+📍 Building observed layer (real FIRMS detections)...
+🔮 Predicting fire dates for next 7 days...
+Short-window  filter: ≥3 fire(s) in last 30d → 2,158 / 9,479 kept (22.8%)
+Long-window   filter: ≥3 fire(s) in last 90d → 2,158 / 2,158 kept (100.0%)
+Fire-rate     filter: ≥3.0 fire-days/year (full history) → 1,451 / 2,158 kept (67.2%)
+Urban-area    filter: dropped 1 cells inside major cities (+0.0 km buffer); 1,450 / 1,451 kept (99.9%)
+Country       filter: dropped 609 cells outside Thailand (neighbour countries); 841 / 1,450 kept (58.0%)
+Per-day cap   : capped each predicted day to 100 most-active cells; dropped 641; 200 / 841 kept (per-day: {2: 100, 3: 100})
+Total after history filters: 200 / 9,479 cells (2.1%)
+Urgency thresholds [snapshot-quantile fallback (fixed cutoffs collapse to one tier)]: {'CRITICAL': 2.998, 'HIGH': 2.999, 'MEDIUM': 3.0, 'LOW': 7.0}
+Retrospective validation: 93 hits / 3159 validatable = 2.9% hit rate (±1 day window, 598 still pending)
+
+✅ FIRE DATE MAP UPDATED
+Observed date : 2026-05-15
+Base date     : 2026-05-15
+Thresholds    : {'CRITICAL': 2.998, 'HIGH': 2.999, 'MEDIUM': 3.0, 'LOW': 7.0}
+GeoJSON       : /home/qomaru/Science-Project-version-3/outputs/riskmap/fire_dates_all.geojson
+
+📊 URGENCY SUMMARY (calibrated thresholds):
+  CRITICAL: 100 locations
+  HIGH: 0 locations
+  MEDIUM: 75 locations
+  LOW: 25 locations
+  NONE: 0 locations

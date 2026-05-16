@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchGeoJson } from "./api";
+import AlertSettings from "./components/AlertSettings";
 import InfoModal from "./components/InfoModal";
 import MapView from "./components/MapView";
 import Sidebar from "./components/Sidebar";
@@ -48,6 +49,7 @@ export default function App() {
 
   // Info modal visibility
   const [infoModalOpen, setInfoModalOpen] = useState(false);
+  const [alertSettingsOpen, setAlertSettingsOpen] = useState(false);
 
   const refreshLiveFires = useCallback(async () => {
     // Abort any in-flight fetch so a quick toggle on/off doesn't pile up requests.
@@ -257,6 +259,7 @@ export default function App() {
         selectedDay={selectedDay}
         onDayChange={setSelectedDay}
         predicted={derived.snapshotPredicted}
+        predictedAll={derived.predictedAll}
         visibleCount={derived.visiblePredicted.length}
         daySelectorMessage={derived.daySelectorMessage}
         thresholds={meta.urgency_thresholds ?? null}
@@ -267,6 +270,7 @@ export default function App() {
         onExportCsv={onExportCsv}
         liveFireMeta={liveFireMeta}
         onShowInfoModal={() => setInfoModalOpen(true)}
+        onShowAlertSettings={() => setAlertSettingsOpen(true)}
       />
 
       <MapView
@@ -292,6 +296,13 @@ export default function App() {
         metadata={meta}
         selectedProvince={selectedProvince}
         selectedDay={selectedDay}
+      />
+
+      <AlertSettings
+        open={alertSettingsOpen}
+        onClose={() => setAlertSettingsOpen(false)}
+        predicted={derived.snapshotPredicted}
+        metrics={meta.metrics ?? null}
       />
     </>
   );

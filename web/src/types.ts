@@ -11,10 +11,78 @@ export interface UrgencyThresholds {
 }
 
 export interface ValidationMetrics {
+  // Task discriminator — "binary_fire_in_3d" or undefined (legacy regression).
+  task?: string;
+  imminent_days?: number;
+  // Legacy regression metrics — meaningful when task is undefined.
   mae_days?: number;
   rmse_days?: number;
   r2?: number;
   accuracy_within_1day?: number;
+  accuracy_exact?: number;
+  // Binary classification metrics — meaningful when task = "binary_fire_in_3d".
+  roc_auc?: number;
+  average_precision?: number;
+  binary_accuracy?: number;
+  precision?: number;
+  recall?: number;
+  f1?: number;
+  best_f1?: number;
+  best_threshold?: number;
+  precision_at_best_thr?: number;
+  recall_at_best_thr?: number;
+  precision_at_top_5pct?: number;
+  precision_at_top_10pct?: number;
+  precision_at_top_20pct?: number;
+  // Baseline + uplift framing (test_positive_rate is what a random
+  // ranker would achieve on precision@K).
+  test_positive_rate?: number;
+  uplift_at_top_5pct?: number;
+  uplift_at_top_10pct?: number;
+  uplift_at_top_20pct?: number;
+  // Calibration metrics (added by Phase 0.5 post-calibration).
+  // ECE = expected calibration error on test (lower = better).
+  // < 0.05 = trustworthy probability; > 0.15 = treat as rank-only.
+  ece?: number;
+  ece_val_before_calibration?: number;
+  ece_val_after_calibration?: number;
+  calibration_method?: string;
+  // Locked deployment threshold + its metrics. Headline dashboard numbers
+  // should come from these (they're the ones an operator actually sees).
+  deployment_threshold?: number;
+  deployment_precision?: number;
+  deployment_recall?: number;
+  deployment_f1?: number;
+  deployment_accuracy?: number;
+  // Reliability bins for the calibration curve plot.
+  reliability_bins?: ReliabilityBin[];
+  // Where the metrics were evaluated. "full_distribution_test_window" = real
+  // class balance (positive ~3-5%); legacy runs evaluated on undersampled.
+  evaluated_on?: string;
+  // Stability across rolling monthly evaluations (from rolling_eval.json).
+  // Tells the operator whether the model's AUC drifts over time.
+  stability_months?: number;
+  stability_valid_months?: number;
+  stability_auc_mean?: number;
+  stability_auc_std?: number;
+  stability_auc_min?: number;
+  stability_auc_max?: number;
+  rolling_by_month?: RollingMonthPoint[];
+}
+
+export interface RollingMonthPoint {
+  month: string;          // "2025-04"
+  auc: number;
+  positive_rate: number;
+  n: number;
+}
+
+export interface ReliabilityBin {
+  bin_lower: number;
+  bin_upper: number;
+  mean_predicted: number;
+  actual_rate: number;
+  count: number;
 }
 
 export interface SnapshotHitRate {
@@ -49,6 +117,12 @@ export interface PredictionProperties {
   // observed
   date?: string;
   fire_count?: number;
+  // Retrospective validation (set by risk_map.py on past snapshots once the
+  // ±1-day window closes):
+  //   "hit"    — predicted cell did burn within the window
+  //   "miss"   — no fire observed in the window
+  //   "future" — prediction window hasn't closed yet
+  validation_status?: "hit" | "miss" | "future";
 }
 
 export interface FireFeature {
