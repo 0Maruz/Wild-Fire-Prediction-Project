@@ -3,7 +3,7 @@
 # =============================================================================
 # Stage 1 — build the Vite + React + TypeScript SPA
 # =============================================================================
-FROM node:20-alpine AS web-build
+FROM node:22-alpine AS web-build
 
 WORKDIR /web
 
@@ -18,11 +18,13 @@ RUN npm run build
 # =============================================================================
 # Stage 2 — Python runtime serving FastAPI + the built SPA
 # =============================================================================
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.13-slim-bookworm AS runtime
 
 # rasterio depends on system GDAL/PROJ; LightGBM needs libgomp.
 # wget is in base; curl is for the health check.
+# apt-get upgrade patches any CVEs present in the base image layers.
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends \
         libgomp1 libexpat1 libgdal32 libproj25 \
         ca-certificates curl \
