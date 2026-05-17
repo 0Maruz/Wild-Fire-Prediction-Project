@@ -1,0 +1,60 @@
+2026-05-16 08:58:01,876 | INFO | train | Quick mode: n_iter=12, n_splits=3
+2026-05-16 08:58:01,878 | INFO | train | ==== STEP 1: load + grid raw FIRMS data ====
+2026-05-16 08:58:01,878 | INFO | data_loader | Loading 6 FIRMS file(s)
+2026-05-16 08:58:01,991 | INFO | data_loader | Loaded 451523 raw hotspot rows
+2026-05-16 08:58:02,622 | INFO | data_loader | Capped FRP at q0.999=202.6, dropped 452 rows
+2026-05-16 08:58:02,630 | INFO | data_loader | After cleaning: 451071 rows
+2026-05-16 08:58:03,083 | INFO | data_loader | Urban filter (buffer=0.0 km): dropped 383 / 451071 hotspots
+2026-05-16 08:58:03,238 | INFO | data_loader | Aggregated to 110814 cell-day rows across 9479 cells
+2026-05-16 08:58:05,733 | INFO | data_loader | Densified 9479 active cells × 470 days = 4455130 rows
+2026-05-16 08:58:07,265 | INFO | data_loader | Merged Hansen tree cover: 4455130 / 4455130 rows have tree_cover values
+2026-05-16 08:58:07,518 | INFO | train | ==== STEP 2: feature engineering ====
+/home/qomaru/Science-Project-version-3/src/features.py:328: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_fire_sum_{w}d"] = _past_roll(df, "wide_neighbor_fire_today", w, "sum")   # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:329: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df["wide_neighbor_fire_velocity_3d"] = (
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:335: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+/home/qomaru/Science-Project-version-3/src/features.py:337: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
+2026-05-16 09:02:30,786 | INFO | features | Built features for 4455130 rows, 407447 positive labels (fire within 7 days)
+2026-05-16 09:02:49,184 | INFO | train | Saved feature dataset → /home/qomaru/Science-Project-version-3/outputs/features/full_features.parquet
+2026-05-16 09:02:49,184 | INFO | train | ==== STEP 3: filter to labelled rows ====
+2026-05-16 09:02:49,789 | INFO | train | Label distribution:
+days_until_fire
+1    109980
+2     69043
+3     57634
+4     49208
+5     44022
+6     40388
+7     37172
+2026-05-16 09:02:49,789 | INFO | train | ==== STEP 4: chronological train / val / test split ====
+2026-05-16 09:02:50,385 | INFO | train | Split date ranges:
+2026-05-16 09:02:50,414 | INFO | train |   train : 2025-01-31 → 2025-12-13  (244468 rows)
+2026-05-16 09:02:50,424 | INFO | train |   val   : 2025-12-13 → 2026-01-27  (81489 rows)
+2026-05-16 09:02:50,434 | INFO | train |   test  : 2026-01-27 → 2026-05-14  (81490 rows)
+2026-05-16 09:02:50,434 | INFO | train | Using 134 features
+2026-05-16 09:02:50,608 | INFO | train | ==== STEP 4b: compute sample weights (short-horizon emphasis) ====
+2026-05-16 09:02:50,659 | INFO | train | Sample weights: min=0.008 max=13.361 mean=1.000
+2026-05-16 09:02:50,659 | INFO | train | ==== STEP 5: LightGBM tuning (BayesSearchCV, n_iter=12, n_splits=3, gap=7) ====
+/home/qomaru/Science-Project-version-3/.venv/lib/python3.13/site-packages/joblib/externals/loky/backend/resource_tracker.py:359: UserWarning: resource_tracker: There appear to be 6 leaked file objects to clean up at shutdown
+  warnings.warn(
+/home/qomaru/Science-Project-version-3/.venv/lib/python3.13/site-packages/joblib/externals/loky/backend/resource_tracker.py:359: UserWarning: resource_tracker: There appear to be 9 leaked semlock objects to clean up at shutdown
+  warnings.warn(
+/home/qomaru/Science-Project-version-3/.venv/lib/python3.13/site-packages/joblib/externals/loky/backend/resource_tracker.py:359: UserWarning: resource_tracker: There appear to be 2 leaked folder objects to clean up at shutdown
+  warnings.warn(

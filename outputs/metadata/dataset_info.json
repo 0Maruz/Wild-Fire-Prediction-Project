@@ -1,36 +1,50 @@
 {
-  "trained_at": "2026-05-13T01:03:28.350352+00:00",
+  "trained_at": "2026-05-16T06:42:28.908736+00:00",
   "data_source": "NASA FIRMS VIIRS NRT (real)",
   "earliest_date": "2025-01-31",
-  "latest_date": "2026-05-12",
-  "data_stale_days": 0,
+  "latest_date": "2026-05-15",
+  "data_stale_days": 1,
   "data_is_stale": false,
-  "total_days": 467,
-  "total_active_cells": 9405,
-  "training_rows": 403830,
+  "total_days": 470,
+  "max_history_days_applied": 0,
+  "total_active_cells": 9479,
+  "training_rows": 1183285,
   "grid_size": 0.1,
   "min_confidence": 0,
   "urban_filter_enabled": true,
   "urban_buffer_km": 0.0,
-  "prediction_type": "fire_date",
+  "prediction_type": "binary_fire_in_3d",
+  "imminent_days": 3,
   "max_prediction_days": 7,
   "features": [
     "fire_lag_1",
     "fire_lag_2",
     "fire_lag_3",
+    "fire_lag_4",
+    "fire_lag_5",
+    "fire_lag_6",
     "fire_lag_7",
     "fire_lag_14",
+    "fire_lag_21",
     "fire_lag_30",
     "frp_lag_1",
     "frp_lag_2",
     "frp_lag_3",
+    "frp_lag_4",
+    "frp_lag_5",
+    "frp_lag_6",
     "frp_lag_7",
     "frp_lag_14",
+    "frp_lag_21",
     "frp_lag_30",
     "fire_sum_3d",
     "frp_sum_3d",
     "frp_max_3d",
     "active_days_3d",
+    "fire_sum_5d",
+    "frp_sum_5d",
+    "frp_max_5d",
+    "active_days_5d",
     "fire_sum_7d",
     "frp_sum_7d",
     "frp_max_7d",
@@ -39,10 +53,18 @@
     "frp_sum_14d",
     "frp_max_14d",
     "active_days_14d",
+    "fire_sum_21d",
+    "frp_sum_21d",
+    "frp_max_21d",
+    "active_days_21d",
     "fire_sum_30d",
     "frp_sum_30d",
     "frp_max_30d",
     "active_days_30d",
+    "fire_sum_60d",
+    "frp_sum_60d",
+    "frp_max_60d",
+    "active_days_60d",
     "frp_trend_1d",
     "frp_trend_3d",
     "frp_trend_7d",
@@ -57,239 +79,613 @@
     "fire_acceleration",
     "frp_intensity_7d",
     "night_fire_ratio",
+    "fire_streak_today",
+    "fire_momentum_7_30",
+    "frp_per_fire_today",
+    "fire_count_60d",
+    "fire_frequency_rate",
     "neighbor_fire_today",
     "neighbor_frp_today",
     "neighbor_fire_lag_1",
+    "neighbor_fire_lag_2",
     "neighbor_fire_lag_3",
+    "neighbor_fire_lag_5",
     "neighbor_fire_lag_7",
     "neighbor_frp_lag_1",
+    "neighbor_frp_lag_2",
     "neighbor_frp_lag_3",
+    "neighbor_frp_lag_5",
     "neighbor_frp_lag_7",
     "neighbor_fire_sum_3d",
     "neighbor_frp_sum_3d",
+    "neighbor_fire_sum_5d",
+    "neighbor_frp_sum_5d",
     "neighbor_fire_sum_7d",
     "neighbor_frp_sum_7d",
+    "neighbor_fire_sum_14d",
+    "neighbor_frp_sum_14d",
     "neighbor_fire_velocity_3d",
     "neighbor_frp_velocity_3d",
     "wide_neighbor_fire_today",
     "wide_neighbor_frp_today",
     "wide_neighbor_fire_lag_1",
+    "wide_neighbor_fire_lag_2",
     "wide_neighbor_fire_lag_3",
+    "wide_neighbor_fire_lag_5",
     "wide_neighbor_fire_lag_7",
     "wide_neighbor_frp_lag_1",
+    "wide_neighbor_frp_lag_2",
     "wide_neighbor_frp_lag_3",
+    "wide_neighbor_frp_lag_5",
     "wide_neighbor_frp_lag_7",
     "wide_neighbor_fire_sum_3d",
     "wide_neighbor_frp_sum_3d",
+    "wide_neighbor_fire_sum_5d",
+    "wide_neighbor_frp_sum_5d",
     "wide_neighbor_fire_sum_7d",
     "wide_neighbor_frp_sum_7d",
+    "wide_neighbor_fire_sum_14d",
+    "wide_neighbor_frp_sum_14d",
     "wide_neighbor_fire_velocity_3d",
     "month_sin",
     "month_cos",
     "doy_sin",
     "doy_cos",
     "is_burn_season",
+    "is_dry_season",
     "days_from_burn_peak",
+    "week_sin",
+    "week_cos",
+    "day_of_week",
+    "is_weekend",
     "distance_to_nearest_city_km",
     "fire_days_per_year_so_far",
     "days_since_last_fire",
+    "season_fire_count_so_far",
+    "days_into_burn_season",
+    "median_fire_gap",
+    "days_since_last_fire_norm",
+    "same_week_fire_last_year",
+    "fire_count_same_month_hist",
     "tree_cover_pct_2000",
     "tree_loss_pct_recent",
     "lat_grid",
-    "lon_grid"
+    "lon_grid",
+    "temp_max_today",
+    "temp_max_lag_1",
+    "temp_max_lag_3",
+    "temp_max_lag_7",
+    "temp_max_mean_3d",
+    "temp_max_mean_7d",
+    "temp_min_today",
+    "temp_min_lag_1",
+    "temp_min_lag_3",
+    "temp_min_lag_7",
+    "temp_min_mean_3d",
+    "temp_min_mean_7d",
+    "precip_sum_today",
+    "precip_sum_lag_1",
+    "precip_sum_lag_3",
+    "precip_sum_lag_7",
+    "precip_sum_mean_3d",
+    "precip_sum_mean_7d",
+    "wind_max_today",
+    "wind_max_lag_1",
+    "wind_max_lag_3",
+    "wind_max_lag_7",
+    "wind_max_mean_3d",
+    "wind_max_mean_7d",
+    "et0_today",
+    "et0_lag_1",
+    "et0_lag_3",
+    "et0_lag_7",
+    "et0_mean_3d",
+    "et0_mean_7d"
   ],
-  "weather_features_used": [],
+  "feature_count": 164,
+  "weather_features_used": [
+    "temp_max_today",
+    "temp_max_lag_1",
+    "temp_max_lag_3",
+    "temp_max_lag_7",
+    "temp_max_mean_3d",
+    "temp_max_mean_7d",
+    "temp_min_today",
+    "temp_min_lag_1",
+    "temp_min_lag_3",
+    "temp_min_lag_7",
+    "temp_min_mean_3d",
+    "temp_min_mean_7d",
+    "precip_sum_today",
+    "precip_sum_lag_1",
+    "precip_sum_lag_3",
+    "precip_sum_lag_7",
+    "precip_sum_mean_3d",
+    "precip_sum_mean_7d",
+    "wind_max_today",
+    "wind_max_lag_1",
+    "wind_max_lag_3",
+    "wind_max_lag_7",
+    "wind_max_mean_3d",
+    "wind_max_mean_7d",
+    "et0_today",
+    "et0_lag_1",
+    "et0_lag_3",
+    "et0_lag_7",
+    "et0_mean_3d",
+    "et0_mean_7d"
+  ],
   "urgency_thresholds": {
     "CRITICAL": 0.0,
     "HIGH": 2.0,
     "MEDIUM": 4.0,
     "LOW": 7.0
   },
-  "urgency_thresholds_note": "Fixed domain thresholds: CRITICAL=fire today, HIGH\u22642d, MEDIUM\u22644d, LOW\u22647d, NONE>7d. Quantile calibration was removed because it forced every active cell into a tier and made NONE structurally impossible.",
-  "best_model": "xgboost",
+  "urgency_thresholds_note": "Fixed domain thresholds: CRITICAL=fire today, HIGH\u22642d, MEDIUM\u22644d, LOW\u22647d.",
+  "best_model": "lightgbm",
   "model": {
-    "type": "xgboost",
-    "val_metrics": {
-      "mae_days": 2.1333,
-      "rmse_days": 2.5062,
-      "r2": -0.5395,
-      "accuracy_within_1day": 0.3678,
-      "cv_mae_days": 1.6323
+    "type": "lightgbm",
+    "search_method": "BayesSearchCV",
+    "n_iter": 12,
+    "n_splits": 3,
+    "ts_split_gap_days": 7,
+    "n_ensemble": 3,
+    "early_stopping_rounds": 50,
+    "best_params": {
+      "colsample_bytree": 0.7,
+      "learning_rate": 0.05,
+      "max_depth": 8,
+      "min_child_samples": 20,
+      "n_estimators": 400,
+      "num_leaves": 31,
+      "reg_alpha": 0.0,
+      "reg_lambda": 1.0,
+      "subsample": 0.9
+    },
+    "test_metrics_binary": {
+      "roc_auc": 0.8446,
+      "average_precision": 0.3124,
+      "accuracy": 0.802,
+      "precision": 0.3571,
+      "recall": 0.6641,
+      "f1": 0.4645,
+      "best_f1": 0.5089,
+      "best_threshold": 0.35,
+      "precision_at_best_thr": 0.345,
+      "recall_at_best_thr": 0.969,
+      "precision_at_top_5pct": 0.176,
+      "precision_at_top_10pct": 0.2962,
+      "precision_at_top_20pct": 0.3492
     },
     "test_metrics": {
-      "mae_days": 1.823,
-      "rmse_days": 2.1188,
-      "r2": -0.1054,
-      "accuracy_within_1day": 0.4083
+      "mae_days": 5.9487,
+      "rmse_days": 6.1514,
+      "r2": -11.1994,
+      "accuracy_within_1day": 0.0305,
+      "accuracy_exact": 0.011,
+      "task": "binary_fire_in_3d",
+      "imminent_days": 3,
+      "roc_auc": 0.8451,
+      "average_precision": 0.1007,
+      "binary_accuracy": 0.9657,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "best_f1": 0.1942,
+      "best_threshold": 0.05,
+      "precision_at_best_thr": 0.1112,
+      "recall_at_best_thr": 0.7654,
+      "precision_at_top_5pct": 0.0601,
+      "precision_at_top_10pct": 0.0932,
+      "precision_at_top_20pct": 0.1156,
+      "test_positive_rate": 0.0343,
+      "uplift_at_top_5pct": 1.752,
+      "uplift_at_top_10pct": 2.717,
+      "uplift_at_top_20pct": 3.37,
+      "evaluated_on": "full_distribution_test_window",
+      "ece": 0.0216,
+      "ece_val_before_calibration": 0.3059,
+      "ece_val_after_calibration": 0.0057,
+      "deployment_threshold": 0.05,
+      "deployment_precision": 0.1112,
+      "deployment_recall": 0.7654,
+      "deployment_f1": 0.1942,
+      "deployment_accuracy": 0.7819,
+      "reliability_bins": [
+        {
+          "bin_lower": 0.0,
+          "bin_upper": 0.1,
+          "mean_predicted": 0.020829091506623567,
+          "actual_rate": 0.01685621529331128,
+          "count": 730947
+        },
+        {
+          "bin_lower": 0.1,
+          "bin_upper": 0.2,
+          "mean_predicted": 0.17087970403000605,
+          "actual_rate": 0.13806563093015722,
+          "count": 64817
+        },
+        {
+          "bin_lower": 0.2,
+          "bin_upper": 0.30000000000000004,
+          "mean_predicted": 0.24737221465546405,
+          "actual_rate": 0.09791942222502152,
+          "count": 95262
+        }
+      ],
+      "calibration_method": "platt_sigmoid",
+      "calibrated_at": "2026-05-16T08:38:44.491526+00:00",
+      "stability_months": 17,
+      "stability_valid_months": 17,
+      "stability_auc_mean": 0.9152,
+      "stability_auc_std": 0.0641,
+      "stability_auc_min": 0.8044,
+      "stability_auc_max": 0.9845,
+      "rolling_by_month": [
+        {
+          "month": "2025-01",
+          "auc": 0.8842,
+          "positive_rate": 0.1688,
+          "n": 9479
+        },
+        {
+          "month": "2025-02",
+          "auc": 0.9219,
+          "positive_rate": 0.1363,
+          "n": 265412
+        },
+        {
+          "month": "2025-03",
+          "auc": 0.9239,
+          "positive_rate": 0.1766,
+          "n": 293849
+        },
+        {
+          "month": "2025-04",
+          "auc": 0.9027,
+          "positive_rate": 0.1117,
+          "n": 284370
+        },
+        {
+          "month": "2025-05",
+          "auc": 0.9503,
+          "positive_rate": 0.0263,
+          "n": 293849
+        },
+        {
+          "month": "2025-06",
+          "auc": 0.9785,
+          "positive_rate": 0.0051,
+          "n": 284370
+        },
+        {
+          "month": "2025-07",
+          "auc": 0.9704,
+          "positive_rate": 0.005,
+          "n": 293849
+        },
+        {
+          "month": "2025-08",
+          "auc": 0.9845,
+          "positive_rate": 0.0127,
+          "n": 293849
+        },
+        {
+          "month": "2025-09",
+          "auc": 0.9808,
+          "positive_rate": 0.0041,
+          "n": 284370
+        },
+        {
+          "month": "2025-10",
+          "auc": 0.9827,
+          "positive_rate": 0.0071,
+          "n": 293849
+        },
+        {
+          "month": "2025-11",
+          "auc": 0.9793,
+          "positive_rate": 0.0228,
+          "n": 284370
+        },
+        {
+          "month": "2025-12",
+          "auc": 0.9312,
+          "positive_rate": 0.0687,
+          "n": 293849
+        },
+        {
+          "month": "2026-01",
+          "auc": 0.8106,
+          "positive_rate": 0.1306,
+          "n": 293849
+        },
+        {
+          "month": "2026-02",
+          "auc": 0.9184,
+          "positive_rate": 0.0072,
+          "n": 265412
+        },
+        {
+          "month": "2026-03",
+          "auc": 0.8044,
+          "positive_rate": 0.0346,
+          "n": 293849
+        },
+        {
+          "month": "2026-04",
+          "auc": 0.8221,
+          "positive_rate": 0.0291,
+          "n": 284370
+        },
+        {
+          "month": "2026-05",
+          "auc": 0.8128,
+          "positive_rate": 0.0854,
+          "n": 142185
+        }
+      ]
     },
     "baseline_test_metrics": {
-      "mae_days": 1.739,
-      "rmse_days": 2.0778,
-      "r2": -0.0631,
-      "accuracy_within_1day": 0.448
+      "mae": 0.5,
+      "rmse": 0.0,
+      "r2": 0.0,
+      "acc_within_1": 0.0,
+      "acc_exact": 0.0
     },
-    "baseline_label_mean": 3.085485641647888,
-    "mae_improvement_over_baseline_pct": -4.830362277170779,
-    "skill_check_passed": false,
+    "baseline_label_mean": 0.19623477578661663,
+    "mae_improvement_over_baseline_pct": 68.9277,
+    "skill_check_passed": true,
     "prediction_distribution_test": {
-      "min": 1.6596601009368896,
-      "p25": 4.532677173614502,
-      "median": 4.761239051818848,
-      "p75": 4.815762519836426,
-      "max": 5.062507629394531,
-      "std": 0.4954790771007538
+      "min": 3.073632766592918,
+      "p25": 4.190412223605717,
+      "median": 5.066662068970138,
+      "p75": 5.214885751271452,
+      "max": 5.406798309271627,
+      "std": 0.762909113629143
     },
-    "predictions_bunched": true,
-    "best_params": {
-      "subsample": 0.9,
-      "reg_lambda": 1.0,
-      "reg_alpha": 0.5,
-      "n_estimators": 1000,
-      "min_child_weight": 50,
-      "max_depth": 4,
-      "learning_rate": 0.01,
-      "gamma": 3.0,
-      "colsample_bytree": 0.6
-    },
+    "predictions_bunched": false,
+    "scale_pos_weight": 4.096,
+    "neg_to_pos_ratio_train": 4,
+    "decision_threshold_best_f1": 0.35,
     "split_date_ranges": {
       "train": [
         "2025-01-31",
-        "2025-12-11"
+        "2025-11-09"
       ],
       "val": [
-        "2025-12-11",
-        "2026-01-27"
+        "2025-11-09",
+        "2026-02-04"
       ],
       "test": [
-        "2026-01-27",
-        "2026-05-11"
+        "2026-02-04",
+        "2026-05-15"
       ]
     },
-    "note": "val_metrics: model selection on 20% val split. test_metrics: held-out 20% test split, evaluated before refit. Deployed artefact is refit on train+val."
+    "training_time_seconds": 1158.06,
+    "tuning_time_seconds": 346.29,
+    "ensemble_refit_time_seconds": 9.99
   },
-  "all_candidates": {
-    "lightgbm": {
-      "best_params": {
-        "subsample": 0.9,
-        "reg_lambda": 0.5,
-        "reg_alpha": 10.0,
-        "num_leaves": 95,
-        "n_estimators": 700,
-        "min_split_gain": 0.2,
-        "min_child_samples": 200,
-        "max_depth": -1,
-        "learning_rate": 0.01,
-        "colsample_bytree": 1.0
-      },
-      "metrics": {
-        "mae_days": 2.1794,
-        "rmse_days": 2.56,
-        "r2": -0.6063,
-        "accuracy_within_1day": 0.3606,
-        "cv_mae_days": 1.6418
-      }
+  "daily_stats": {
+    "day_1": {
+      "mae": 2.7371,
+      "rmse": 2.7908,
+      "r2": 0.0,
+      "acc_within_1": 0.0,
+      "acc_exact": 0.0,
+      "prediction_count": 10947,
+      "bias": 2.7371,
+      "mean_predicted": 3.7371,
+      "mean_actual": 1.0,
+      "hotspot_count": 10947,
+      "hotspot_hit_rate": 0.0,
+      "false_alarm_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
     },
-    "xgboost": {
-      "best_params": {
-        "subsample": 0.9,
-        "reg_lambda": 1.0,
-        "reg_alpha": 0.5,
-        "n_estimators": 1000,
-        "min_child_weight": 50,
-        "max_depth": 4,
-        "learning_rate": 0.01,
-        "gamma": 3.0,
-        "colsample_bytree": 0.6
-      },
-      "metrics": {
-        "mae_days": 2.1333,
-        "rmse_days": 2.5062,
-        "r2": -0.5395,
-        "accuracy_within_1day": 0.3678,
-        "cv_mae_days": 1.6323
-      }
+    "day_2": {
+      "mae": 1.7758,
+      "rmse": 1.8562,
+      "r2": 0.0,
+      "acc_within_1": 0.4433,
+      "acc_exact": 0.0,
+      "prediction_count": 9974,
+      "bias": 1.7758,
+      "mean_predicted": 3.7758,
+      "mean_actual": 2.0,
+      "hotspot_count": 9974,
+      "hotspot_hit_rate": 0.0,
+      "false_alarm_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    "day_3": {
+      "mae": 0.9487,
+      "rmse": 1.1431,
+      "r2": 0.0,
+      "acc_within_1": 0.7351,
+      "acc_exact": 0.358,
+      "prediction_count": 9677,
+      "bias": 0.9487,
+      "mean_predicted": 3.9487,
+      "mean_actual": 3.0,
+      "hotspot_count": 9677,
+      "hotspot_hit_rate": 0.0,
+      "false_alarm_rate": 0.0,
+      "precision": 0.0873,
+      "recall": 0.358
+    },
+    "day_4": {
+      "mae": 0.598,
+      "rmse": 0.6663,
+      "r2": 0.0,
+      "acc_within_1": 1.0,
+      "acc_exact": 0.3674,
+      "prediction_count": 2153,
+      "bias": 0.0388,
+      "mean_predicted": 4.0388,
+      "mean_actual": 4.0,
+      "hotspot_count": 2153,
+      "hotspot_hit_rate": 0.0,
+      "false_alarm_rate": 0.0,
+      "precision": 0.0231,
+      "recall": 0.3674
+    },
+    "day_5": {
+      "mae": 0.9658,
+      "rmse": 1.1576,
+      "r2": 0.0,
+      "acc_within_1": 0.6933,
+      "acc_exact": 0.3464,
+      "prediction_count": 2113,
+      "bias": -0.9285,
+      "mean_predicted": 4.0715,
+      "mean_actual": 5.0,
+      "hotspot_count": 2113,
+      "hotspot_hit_rate": 0.0,
+      "false_alarm_rate": 0.0,
+      "precision": 0.0045,
+      "recall": 0.3464
+    },
+    "day_6": {
+      "mae": 1.877,
+      "rmse": 2.0059,
+      "r2": 0.0,
+      "acc_within_1": 0.3849,
+      "acc_exact": 0.0,
+      "prediction_count": 2094,
+      "bias": -1.877,
+      "mean_predicted": 4.123,
+      "mean_actual": 6.0,
+      "hotspot_count": 2094,
+      "hotspot_hit_rate": 0.0,
+      "false_alarm_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    "day_7": {
+      "mae": 2.8666,
+      "rmse": 2.9538,
+      "r2": 0.0,
+      "acc_within_1": 0.0,
+      "acc_exact": 0.0,
+      "prediction_count": 2168,
+      "bias": -2.8666,
+      "mean_predicted": 4.1334,
+      "mean_actual": 7.0,
+      "hotspot_count": 2168,
+      "hotspot_hit_rate": 0.0,
+      "false_alarm_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
     }
+  },
+  "summary": {
+    "task": "binary_fire_in_3d",
+    "imminent_days": 3,
+    "neg_to_pos_ratio": 4,
+    "test_positive_rate": 0.1293,
+    "roc_auc": 0.8446,
+    "average_precision": 0.3124,
+    "accuracy": 0.802,
+    "precision": 0.3571,
+    "recall": 0.6641,
+    "f1": 0.4645,
+    "best_f1": 0.5089,
+    "best_threshold": 0.35,
+    "precision_at_best_thr": 0.345,
+    "recall_at_best_thr": 0.969,
+    "precision_at_top_5pct": 0.176,
+    "precision_at_top_10pct": 0.2962,
+    "precision_at_top_20pct": 0.3492,
+    "pseudo_days_mae": 5.1553,
+    "pseudo_days_rmse": 5.4187,
+    "pseudo_days_acc_within_1": 0.0674,
+    "best_day": 4,
+    "worst_day": 7
   },
   "feature_importance_top": [
     {
-      "feature": "fire_std_7d",
-      "importance": 0.09468160569667816
-    },
-    {
-      "feature": "frp_intensity_7d",
-      "importance": 0.0802987664937973
-    },
-    {
-      "feature": "frp_sum_7d",
-      "importance": 0.0746840089559555
-    },
-    {
-      "feature": "fire_sum_7d",
-      "importance": 0.06418894231319427
-    },
-    {
-      "feature": "active_days_7d",
-      "importance": 0.041673313826322556
-    },
-    {
-      "feature": "neighbor_fire_sum_7d",
-      "importance": 0.036314647644758224
-    },
-    {
-      "feature": "active_days_3d",
-      "importance": 0.03410201892256737
-    },
-    {
-      "feature": "wide_neighbor_fire_lag_1",
-      "importance": 0.03195460885763168
-    },
-    {
-      "feature": "frp_max_7d",
-      "importance": 0.03194601461291313
-    },
-    {
-      "feature": "fire_sum_14d",
-      "importance": 0.03110228106379509
-    },
-    {
-      "feature": "neighbor_fire_sum_3d",
-      "importance": 0.030695941299200058
-    },
-    {
-      "feature": "fire_sum_30d",
-      "importance": 0.030397046357393265
-    },
-    {
-      "feature": "fire_sum_3d",
-      "importance": 0.022810522466897964
-    },
-    {
-      "feature": "days_since_last_fire",
-      "importance": 0.02093554101884365
-    },
-    {
-      "feature": "days_from_burn_peak",
-      "importance": 0.017025887966156006
-    },
-    {
-      "feature": "fire_days_per_year_so_far",
-      "importance": 0.014507363550364971
-    },
-    {
       "feature": "doy_sin",
-      "importance": 0.014283527620136738
-    },
-    {
-      "feature": "frp_sum_14d",
-      "importance": 0.014030834659934044
+      "importance": 53.0
     },
     {
       "feature": "doy_cos",
-      "importance": 0.01381557248532772
+      "importance": 45.333333333333336
+    },
+    {
+      "feature": "week_sin",
+      "importance": 24.0
+    },
+    {
+      "feature": "days_since_last_fire",
+      "importance": 17.333333333333332
+    },
+    {
+      "feature": "distance_to_nearest_city_km",
+      "importance": 13.666666666666666
+    },
+    {
+      "feature": "season_fire_count_so_far",
+      "importance": 11.666666666666666
+    },
+    {
+      "feature": "neighbor_fire_sum_14d",
+      "importance": 11.0
+    },
+    {
+      "feature": "month_sin",
+      "importance": 10.333333333333334
+    },
+    {
+      "feature": "fire_count_same_month_hist",
+      "importance": 9.0
+    },
+    {
+      "feature": "tree_cover_pct_2000",
+      "importance": 8.666666666666666
+    },
+    {
+      "feature": "month_cos",
+      "importance": 7.333333333333333
+    },
+    {
+      "feature": "day_of_week",
+      "importance": 7.333333333333333
+    },
+    {
+      "feature": "neighbor_fire_sum_7d",
+      "importance": 6.333333333333333
     },
     {
       "feature": "wide_neighbor_fire_sum_7d",
-      "importance": 0.01350980531424284
+      "importance": 6.333333333333333
+    },
+    {
+      "feature": "wide_neighbor_frp_sum_7d",
+      "importance": 6.333333333333333
+    },
+    {
+      "feature": "fire_days_per_year_so_far",
+      "importance": 6.333333333333333
+    },
+    {
+      "feature": "neighbor_frp_sum_14d",
+      "importance": 6.0
+    },
+    {
+      "feature": "week_cos",
+      "importance": 5.666666666666667
+    },
+    {
+      "feature": "lon_grid",
+      "importance": 5.666666666666667
+    },
+    {
+      "feature": "neighbor_frp_today",
+      "importance": 5.333333333333333
     }
-  ]
+  ],
+  "training_time_seconds": 1158.06
 }

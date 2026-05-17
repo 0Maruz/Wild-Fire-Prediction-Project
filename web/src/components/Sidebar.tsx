@@ -10,6 +10,9 @@ import type {
 } from "../types";
 import { computeFreshness, dateAdd } from "../utils/dates";
 import AccuracyHero from "./AccuracyHero";
+import ActionToolbar from "./ActionToolbar";
+import DataSourcesPanel from "./DataSourcesPanel";
+import RetrospectivePanel from "./RetrospectivePanel";
 
 interface SidebarProps {
   // Header / base date
@@ -35,6 +38,9 @@ interface SidebarProps {
   metrics: ValidationMetrics | null;
   metadata: GeoJsonMetadata | null;
 
+  // ALL predicted features across base_dates — for retrospective panel
+  predictedAll: FireFeature[];
+
   // Display options + export
   options: DisplayOptions;
   onOptionsChange: (o: Partial<DisplayOptions>) => void;
@@ -45,6 +51,7 @@ interface SidebarProps {
 
   // Info modal
   onShowInfoModal: () => void;
+  onShowAlertSettings: () => void;
 }
 
 export default function Sidebar(p: SidebarProps) {
@@ -146,7 +153,16 @@ export default function Sidebar(p: SidebarProps) {
         </div>
       </div>
 
-      {/* Hero Accuracy — most-trusted number near the top, with details modal */}
+      {/* Action toolbar — production actions: export, share, threshold, details */}
+      <ActionToolbar
+        predicted={p.predicted}
+        metrics={p.metrics}
+        onShowDetails={p.onShowInfoModal}
+        onShowAlertSettings={p.onShowAlertSettings}
+        baseDate={p.activeBaseDate}
+      />
+
+      {/* Hero Accuracy — multi-card grid; "model is good" metrics first */}
       <AccuracyHero metrics={p.metrics} onShowDetails={p.onShowInfoModal} />
 
       {/* Day Selector */}
@@ -291,6 +307,12 @@ export default function Sidebar(p: SidebarProps) {
       {/* Hit-rate */}
       <HitRate metadata={p.metadata} activeBaseDate={p.activeBaseDate} />
 
+      {/* Past predictions retrospective — strongest trust signal */}
+      <RetrospectivePanel allFeatures={p.predictedAll} />
+
+      {/* Data sources / provenance */}
+      <DataSourcesPanel />
+
       {/* Display Options — simplified: only Observed FIRMS + Live GISTDA toggles.
           Predictions + cell pins are always on (matches frontend/index.html v=8). */}
       <DisplaySection
@@ -300,11 +322,33 @@ export default function Sidebar(p: SidebarProps) {
       />
 
       <div className="info-footer">
-        <small>
-          Data sources (real only):<br />
-          • NASA FIRMS VIIRS NRT<br />
-          • Open-Meteo ERA5 (if enabled)<br />
-          No synthetic data is used.
+        <small style={{ display: "block", lineHeight: 1.6 }}>
+          <b>🔥 Thailand Wildfire Imminence Predictor v0.5</b>
+          <br />
+          Open-source · MIT License
+          <br />
+          <a
+            href="https://github.com/0Maruz/Science-Project-version-3"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--accent)" }}
+          >
+            🐙 GitHub source
+          </a>
+          {" · "}
+          <a href="docs/MODEL_CARD.md" style={{ color: "var(--accent)" }}>
+            📋 Model Card
+          </a>
+          {" · "}
+          <a href="docs/METHODOLOGY.md" style={{ color: "var(--accent)" }}>
+            📐 Methodology
+          </a>
+          <br />
+          <span style={{ color: "var(--text-3)", fontSize: 10 }}>
+            Data: NASA FIRMS + ECMWF ERA5 · No synthetic values · Calibrated (Platt sigmoid)
+            <br />
+            ⚠ Research-grade — not for life-safety decisions
+          </span>
         </small>
       </div>
     </div>

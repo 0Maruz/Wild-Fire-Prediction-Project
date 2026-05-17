@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchGeoJson } from "./api";
+import AlertSettings from "./components/AlertSettings";
 import InfoModal from "./components/InfoModal";
+import LiveStatusBadge from "./components/LiveStatusBadge";
 import MapView from "./components/MapView";
+import NavTabs from "./components/NavTabs";
+import NotifyPage from "./components/NotifyPage";
+import ReportsPage from "./components/ReportsPage";
 import Sidebar from "./components/Sidebar";
+import ThemeToggle from "./components/ThemeToggle";
+import { useHashRoute } from "./utils/hashRoute";
 import type {
   DaySelection,
   DisplayOptions,
@@ -48,6 +55,14 @@ export default function App() {
 
   // Info modal visibility
   const [infoModalOpen, setInfoModalOpen] = useState(false);
+  const [alertSettingsOpen, setAlertSettingsOpen] = useState(false);
+  // Mobile sidebar drawer (desktop ignores this — sidebar always visible)
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Hash-based routing between Dashboard / Notify / Reports
+  const [route, navigate] = useHashRoute();
+  // Close mobile drawer whenever the route changes
+  useEffect(() => { setSidebarOpen(false); }, [route]);
 
   const refreshLiveFires = useCallback(async () => {
     // Abort any in-flight fetch so a quick toggle on/off doesn't pile up requests.
@@ -244,8 +259,62 @@ export default function App() {
 
   const meta = geojson.metadata ?? {};
 
+  // Critical count for nav badge — across the LATEST base_date snapshot only
+  const criticalCount = derived.snapshotPredicted.filter(
+    (f) => f.properties.urgency_level === "CRITICAL"
+  ).length;
+
+  // ── Render route-specific content ──
+  if (route === "notify") {
+    return (
+      <>
+        <TopBar
+          route={route}
+          onNavigate={navigate}
+          criticalCount={criticalCount}
+          showSidebarToggle={false}
+        />
+        <NotifyPage predictedAll={derived.predictedAll} />
+      </>
+    );
+  }
+
+  if (route === "reports") {
+    return (
+      <>
+        <TopBar
+          route={route}
+          onNavigate={navigate}
+          criticalCount={criticalCount}
+          showSidebarToggle={false}
+        />
+        <ReportsPage
+          metrics={meta.metrics ?? null}
+          predictedAll={derived.predictedAll}
+        />
+      </>
+    );
+  }
+
+  // Dashboard (default)
   return (
     <>
+      <TopBar
+        route={route}
+        onNavigate={navigate}
+        criticalCount={criticalCount}
+        showSidebarToggle={true}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+      />
+      {sidebarOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <div id="sidebar-wrap" className={sidebarOpen ? "open" : ""}>
       <Sidebar
         activeBaseDate={derived.activeBaseDate}
         allBaseDates={derived.allBaseDates}
@@ -257,6 +326,7 @@ export default function App() {
         selectedDay={selectedDay}
         onDayChange={setSelectedDay}
         predicted={derived.snapshotPredicted}
+        predictedAll={derived.predictedAll}
         visibleCount={derived.visiblePredicted.length}
         daySelectorMessage={derived.daySelectorMessage}
         thresholds={meta.urgency_thresholds ?? null}
@@ -267,7 +337,9 @@ export default function App() {
         onExportCsv={onExportCsv}
         liveFireMeta={liveFireMeta}
         onShowInfoModal={() => setInfoModalOpen(true)}
+        onShowAlertSettings={() => setAlertSettingsOpen(true)}
       />
+      </div>
 
       <MapView
         observed={derived.observed}
@@ -293,7 +365,51 @@ export default function App() {
         selectedProvince={selectedProvince}
         selectedDay={selectedDay}
       />
+
+      <AlertSettings
+        open={alertSettingsOpen}
+        onClose={() => setAlertSettingsOpen(false)}
+        predicted={derived.snapshotPredicted}
+        metrics={meta.metrics ?? null}
+      />
     </>
+  );
+}
+
+function TopBar({
+  route, onNavigate, criticalCount,
+  showSidebarToggle = false, sidebarOpen = false, onToggleSidebar,
+}: {
+  route: "dashboard" | "notify" | "reports";
+  onNavigate: (r: "dashboard" | "notify" | "reports") => void;
+  criticalCount: number;
+  showSidebarToggle?: boolean;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
+}) {
+  return (
+    <header className="top-bar">
+      <div className="top-bar-brand">
+        {showSidebarToggle && (
+          <button
+            type="button"
+            className="hamburger-btn"
+            onClick={onToggleSidebar}
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+            aria-expanded={sidebarOpen}
+          >
+            <span>{sidebarOpen ? "✕" : "☰"}</span>
+          </button>
+        )}
+        <span className="top-bar-logo" aria-hidden="true">🔥</span>
+        <span className="top-bar-title">FireWatch Thailand</span>
+      </div>
+      <NavTabs active={route} onNavigate={onNavigate} criticalCount={criticalCount} />
+      <div className="top-bar-status">
+        <ThemeToggle />
+        <LiveStatusBadge />
+      </div>
+    </header>
   );
 }
 

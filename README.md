@@ -2,8 +2,27 @@
 
 ระบบทำนาย **"ไฟป่าจะเกิดอีกกี่วัน"** ในกริด 0.1° ทั่วประเทศไทย (BBOX `96,4,107,22`)
 ใช้ข้อมูลจริงจาก NASA FIRMS VIIRS NRT + (ตัวเลือก) ข้อมูลอากาศ ECMWF ERA5 จาก Open-Meteo
-แล้ว train โมเดล tree-ensemble (RandomForest / LightGBM / XGBoost — ระบบเลือกตัวที่ดีที่สุดเอง)
-ทำนายค่า `days_until_fire` (1–7 วัน) แล้ว map เป็นระดับเร่งด่วน CRITICAL / HIGH / MEDIUM / LOW
+แล้ว train **LightGBM binary classifier** ตอบคำถาม "ใน cell นี้จะมีไฟใน 3 วันข้างหน้ามั้ย?"
+output เป็น **probability** map → ระดับเร่งด่วน CRITICAL / HIGH / MEDIUM / LOW
+
+> **โน้ต:** เคยเป็น regression "ทำนาย exact day 1–7" แต่ feature ที่มี (satellite + weather 38%)
+> ไม่พอสำหรับ regression task — collapse เป็น predict-mean ทุกครั้ง (R² ติดลบ)
+> เปลี่ยนเป็น binary แล้ว AUC = 0.845 (ดี) ดูส่วน "การประเมินความแม่นยำ" ด้านล่าง
+
+## 📜 Trust & transparency
+
+ก่อนเชื่อตัวเลข — ลองอ่านเอกสารพวกนี้:
+
+- 📋 **[MODEL_CARD.md](docs/MODEL_CARD.md)** — model details, intended use, performance, limitations (Google Model Card format)
+- 📐 **[METHODOLOGY.md](docs/METHODOLOGY.md)** — how it works, anti-leakage audit, split protocol, reproducibility checklist
+- 🔬 **[outputs/metadata/dataset_info.json](outputs/metadata/dataset_info.json)** — full hyperparameter + metric trail (machine-readable)
+- 📈 **[outputs/metadata/rolling_eval.json](outputs/metadata/rolling_eval.json)** — 17-month rolling AUC for stability audit
+- 🎯 **[outputs/riskmap/fire_dates_all.geojson](outputs/riskmap/fire_dates_all.geojson)** — every past prediction with `validation_status` (hit/miss/future)
+- 🐍 **`grep "# CAUSAL" src/features.py`** — leakage audit (134 of 134 features tagged)
+
+Dashboard ขวาล่างมี **"Past Predictions"** panel แสดง track record จริงในอดีต — ดู screenshot ใน MODEL_CARD.
+
+---
 
 > **หลักการสำคัญ — Real data only**
 > ทุก feature มาจากแหล่งที่วัดได้จริง ไม่มีการสร้างค่าจำลอง / สุ่ม / interpolate ใด ๆ
@@ -108,7 +127,7 @@ Endpoints หลัก:
 - `GET /predictions/timeline` — รวมทั้ง 7 วัน
 - `GET /predictions/day/{n}` — เฉพาะวันที่ n (1=พรุ่งนี้)
 - `GET /predict/location?lat=...&lon=...` — predict ตำแหน่งใด ๆ
-- `GET /metrics` — MAE / RMSE / R² จาก held-out test
+- `GET /metrics` — ROC-AUC / Precision / Recall / F1 จาก held-out test (binary task)
 - `GET /geojson` — ข้อมูลแผนที่
 
 ---
@@ -134,7 +153,7 @@ http://localhost:8080/frontend/index.html
 - แผนที่ Leaflet ของไทย พร้อม marker สีตามระดับเร่งด่วน
 - Day selector (Day 1–7) — กรอง marker ตาม `days_until_fire`
 - Timeline panel — สรุปจำนวนจุดในแต่ละวัน
-- Validation metrics — MAE / RMSE / R² จากชุด test (ดึงจาก `dataset_info.json`)
+- Validation metrics — ROC-AUC / F1 / Precision / Recall จากชุด test (ดึงจาก `dataset_info.json`)
 - Tooltip ที่แต่ละ marker — วันที่ทำนาย, urgency, fire count 30 วันย้อนหลัง
 
 > เว็บอ่าน geojson **ตรง ๆ** ไม่ต้องรัน FastAPI ก็เปิดดูได้
@@ -213,29 +232,73 @@ python risk_map.py           # predict วันใหม่ (โมเดลเ
 
 ## 6. การประเมินความแม่นยำ
 
-หลัง train เสร็จ ดูตัวเลขใน `outputs/metadata/dataset_info.json`:
+โมเดลปัจจุบันเป็น **binary classifier** ตอบคำถาม: *"ใน cell นี้ จะมีไฟใน 3 วันข้างหน้าหรือไม่?"*
+(เปลี่ยนจาก regression "ทำนาย exact day 1–7" เพราะ feature ที่มี [satellite + weather 38%] ไม่พอ
+สำหรับ regression — collapse เป็น predict-mean ทุกครั้ง)
+
+หลัง train เสร็จ ดูตัวเลขใน `outputs/metadata/dataset_info.json` → `model.test_metrics`:
 
 ```json
 {
-  "best_model": "LGBMRegressor",
-  "model": {
-    "test_metrics": {
-      "mae": 1.42,
-      "rmse": 2.05,
-      "r2": 0.31,
-      "acc_within_1": 0.68
-    }
-  }
+  "task": "binary_fire_in_3d",
+  "imminent_days": 3,
+  "roc_auc": 0.845,
+  "average_precision": 0.312,
+  "binary_accuracy": 0.802,
+  "precision": 0.357,
+  "recall": 0.664,
+  "f1": 0.464,
+  "best_f1": 0.509,
+  "best_threshold": 0.35,
+  "precision_at_best_thr": 0.345,
+  "recall_at_best_thr": 0.969,
+  "precision_at_top_5pct": 0.176,
+  "precision_at_top_10pct": 0.296,
+  "precision_at_top_20pct": 0.349
 }
 ```
 
-ตัวชี้วัด:
-- **MAE** — จำนวนวันคลาดเคลื่อนเฉลี่ย (target: < 2 วัน)
-- **RMSE** — ลงโทษค่าผิดพลาดสูง ๆ
-- **R²** — สัดส่วน variance ที่อธิบายได้
-- **acc_within_1** — % ที่ทำนายคลาดไม่เกิน 1 วัน (target: > 70%)
+### ความหมายของแต่ละค่า
 
-ค่าเหล่านี้คำนวณจาก **held-out test set** (20% ล่าสุด) ที่โมเดลไม่เคยเห็นระหว่าง train/tune
+| Metric | ค่าตอนนี้ | ความหมาย |
+|---|---|---|
+| **ROC-AUC** | **0.845** | คุณภาพการ **rank** cell จากเสี่ยงมาก → น้อย โดยไม่สนใจ threshold<br>📈 `0.5` = สุ่ม, `1.0` = perfect, **`≥0.8` = ดี** ← ตอนนี้อยู่ตรงนี้<br>เป็น metric ที่ดีที่สุดสำหรับโจทย์ที่ positive class น้อย (class imbalance) |
+| **Average Precision** | 0.312 | พื้นที่ใต้ precision-recall curve<br>เข้มกว่า ROC-AUC ตอน positive rare — เทียบกับ baseline (test_positive_rate = 0.129) แล้วโมเดล **2.4× ดีกว่ามั่ว** |
+| **Accuracy (binary)** | 80.2% | สัดส่วน cell ที่โมเดลตอบ yes/no ถูก (threshold 0.5)<br>⚠️ **misleading** กับ imbalanced data — baseline "always no" ก็ได้ ~87% เพราะ positive แค่ 13% |
+| **Precision** (@0.5) | 35.7% | จากที่โมเดลเตือน "imminent fire" — มี 35.7% เป็นไฟจริง<br>→ ที่เหลือคือ false alarm |
+| **Recall** (@0.5) | 66.4% | จากไฟจริงทั้งหมด — โมเดลจับได้ 66.4%<br>→ พลาด 33.6% |
+| **F1** (@0.5) | 46.4% | Harmonic mean ของ Precision + Recall — สมดุล |
+| **Best F1** | **50.9%** | F1 สูงสุดที่หาได้ในชุด test (ลองทุก threshold) |
+| **Best threshold** | **0.35** | Probability cutoff ที่ทำให้ F1 สูงสุด<br>ใช้ค่านี้ใน production: cell ที่ `prob ≥ 0.35` = imminent |
+| **Precision @best** | 34.5% | Precision ที่ threshold 0.35 (โดน 1 ใน 3 เตือนเป็นไฟจริง) |
+| **Recall @best** | **96.9%** | 🔥 ที่ threshold 0.35 จับไฟได้ **97%** ของทั้งหมด — แทบไม่พลาดเลย |
+| **P @ top-5%** | 17.6% | จาก 5% ของ cell ที่โมเดลให้ probability สูงสุด — 17.6% เป็นไฟจริง<br>= **1.4× ดีกว่ามั่ว** (baseline 12.9%) |
+| **P @ top-10%** | 29.6% | จาก 10% ที่เสี่ยงสุด → 29.6% ไฟจริง = **2.3× ดีกว่ามั่ว** |
+| **P @ top-20%** | 34.9% | จาก 20% ที่เสี่ยงสุด → 34.9% ไฟจริง = **2.7× ดีกว่ามั่ว** |
+
+### Operational guide — เลือก threshold ตามสถานการณ์
+
+| Threshold | Precision | Recall | เหมาะกับ |
+|---|---|---|---|
+| **0.70+** | สูง | ต่ำ | High-confidence mode — เตือนเฉพาะที่แน่ใจ false alarm น้อย |
+| **0.50** (default) | 35.7% | 66.4% | Balanced — default ของระบบ |
+| **0.35** (best F1) | 34.5% | **96.9%** | **แนะนำ** — high-alert mode, แทบไม่พลาดไฟ |
+| **0.25** | ต่ำลง | สูงสุด | Surveillance mode — ดู cell ที่ "อาจจะ" เกิดไฟ (false alarm เยอะ) |
+
+### Skill check
+
+- `skill_check_passed: true` หมายถึง **ROC-AUC ≥ 0.65** (โมเดลแยก fire/no-fire ได้ดีพอ)
+- ถ้า `false` → อย่า deploy โมเดลตัวนั้น investigate feature signal หรือ data quality ก่อน
+
+### ค่า legacy (regression keys) ใน `test_metrics`
+
+`mae_days`, `rmse_days`, `r2`, `accuracy_within_1day`, `accuracy_exact` ยังอยู่ใน JSON
+แต่ **อย่าใช้** สำหรับ binary task — มันคำนวณจาก pseudo-days output
+(probability mapped to 1–7 days สำหรับ backwards-compat กับ risk_map.py)
+จึงดูแย่ผิดความจริง (acc_within_1 = 6.7%) แม้โมเดลจะดี (AUC = 0.845)
+
+ค่าเหล่านี้คำนวณจาก **held-out test set** (20% ล่าสุดของ timeline) ที่โมเดลไม่เคยเห็นตอน train/tune
+test set เก็บ class distribution จริง (ไม่ undersample) เพื่อวัด performance สมจริง
 
 ---
 

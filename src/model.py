@@ -173,68 +173,33 @@ def candidates(random_state: int = 42) -> Dict[str, Candidate]:
         ),
     }
     if LGBMRegressor is not None:
-<<<<<<< HEAD
-        # Hyperparameter grid tilted toward stronger regularisation. The last
-        # full run logged val R² = -0.32 alongside test R² = 0.28 — clear
-        # overfitting to the early-season training rows. Levers:
-        #   • lower learning_rate floor + more n_estimators → smaller steps,
-        #     better generalisation when paired with early-stopping behaviour.
-        #   • narrower trees: num_leaves cap dropped from 255 → 127, max_depth
-        #     dropped from 20 → 15. Less capacity ⇒ less memorisation.
-        #   • higher min_child_samples → each split must cover ≥30 rows,
-        #     blocks the model from fitting tiny noisy clusters.
-        #   • L1 / L2 ranges widened upward (50.0 ceiling) so the search has
-        #     more room to find the sweet spot.
-=======
         # Grid tuned for MAE objective (regression_l1).
         # Key changes vs MSE grid:
         #   • Lower learning rates (0.003–0.03) since L1 gradient is ±1 and
         #     converges more slowly than smooth MSE gradient.
         #   • More estimators (up to 2000) to compensate for slower convergence.
-        #   • Wider num_leaves range (15–127) — L1 objective creates coarser
-        #     splits so more leaves are needed to capture fine structure.
-        #   • min_child_samples reduced (20–200) — L1 splits fire differently
-        #     and can benefit from finer leaf partitions on dense cells.
-        #   • Added path_smooth (0–1) which helps L1 avoid oscillating splits.
->>>>>>> a46f8c960bf16b552f9b279aabc6145f56a0f4d0
+        #   • Wider num_leaves (15–255) — L1 splits are coarse; more leaves help
+        #     per-cell variation instead of collapsing toward a global mean.
+        #   • min_child_samples as low as 5 on dense grids when reg allows.
+        #   • reg_lambda includes 0.0 so search is not always strongly smoothed.
+        #   • path_smooth spans fine→heavy; max=1.0 alone often narrows preds.
         cands["lightgbm"] = Candidate(
             name="lightgbm",
             builder=_lgbm_builder,
             param_distributions={
-<<<<<<< HEAD
-                "n_estimators": [500, 700, 1000, 1500],
-                "learning_rate": [0.01, 0.02, 0.03, 0.05, 0.08],
-                "num_leaves": [31, 63, 95, 127],
-                "max_depth": [-1, 6, 8, 10, 12, 15],
-                "min_child_samples": [30, 50, 80, 120, 200],
-                "subsample": [0.6, 0.7, 0.8, 0.9, 1.0],
-                "colsample_bytree": [0.6, 0.7, 0.8, 0.9, 1.0],
-                "reg_alpha": [0.0, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0],
-                "reg_lambda": [0.5, 1.0, 5.0, 10.0, 25.0, 50.0],
-                "min_split_gain": [0.0, 0.01, 0.05, 0.1, 0.2],
-            },
-        )
-    if XGBRegressor is not None:
-        # Same regularisation tilt as LightGBM:
-        #   • shallower max_depth ceiling (10 vs 12).
-        #   • min_child_weight floor up to 5 (was 1) → reject splits that hit
-        #     too few hessian samples (XGB's overfitting-prevention analogue
-        #     of min_child_samples).
-        #   • reg_alpha/lambda ceilings widened.
-=======
                 "n_estimators": [500, 800, 1200, 1500, 2000],
                 "learning_rate": [0.003, 0.005, 0.01, 0.02, 0.03],
-                "num_leaves": [15, 31, 47, 63, 95, 127],
-                "max_depth": [-1, 5, 6, 8, 10, 12],
-                "min_child_samples": [10, 15, 20, 50, 80, 120, 200],
+                "num_leaves": [15, 31, 47, 63, 95, 127, 191, 255],
+                "max_depth": [-1, 5, 6, 8, 10, 12, 14],
+                "min_child_samples": [5, 10, 15, 20, 50, 80, 120, 200],
                 "subsample": [0.5, 0.6, 0.7, 0.8, 0.9],
                 "subsample_freq": [1, 5, 10],
                 "colsample_bytree": [0.5, 0.6, 0.7, 0.8, 0.9],
                 "reg_alpha": [0.0, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0],
-                "reg_lambda": [0.5, 1.0, 5.0, 10.0, 25.0, 50.0],
+                "reg_lambda": [0.0, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0],
                 "min_split_gain": [0.0, 0.01, 0.05, 0.1, 0.2],
                 "extra_trees": [True, False],
-                "path_smooth": [0.0, 0.1, 0.5, 1.0],
+                "path_smooth": [0.0, 0.05, 0.1, 0.2, 0.5, 1.0],
             },
         )
     if XGBRegressor is not None:
@@ -247,24 +212,12 @@ def candidates(random_state: int = 42) -> Dict[str, Candidate]:
         #   • Light min_child_weight + moderate depth — empirically the old grid
         #     favoured very high min_child_weight / reg_alpha, which collapsed
         #     predictions to a narrow band (bad acc±1 vs baseline).
->>>>>>> a46f8c960bf16b552f9b279aabc6145f56a0f4d0
         cands["xgboost"] = Candidate(
             name="xgboost",
             builder=_xgb_builder,
             param_distributions={
-<<<<<<< HEAD
-                "n_estimators": [500, 700, 1000, 1500],
-                "max_depth": [4, 5, 6, 7, 8, 10],
-                "learning_rate": [0.01, 0.02, 0.03, 0.05, 0.08],
-                "subsample": [0.6, 0.7, 0.8, 0.9, 1.0],
-                "colsample_bytree": [0.6, 0.7, 0.8, 0.9, 1.0],
-                "min_child_weight": [5, 10, 20, 30, 50],
-                "reg_alpha": [0.0, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0],
-                "reg_lambda": [1.0, 5.0, 10.0, 25.0, 50.0],
-                "gamma": [0.0, 0.05, 0.1, 0.3, 1.0, 3.0],
-=======
                 "n_estimators": [500, 800, 1200, 1500, 2000],
-                "max_depth": [3, 4, 5, 6, 7, 8, 9, 10],
+                "max_depth": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
                 "learning_rate": [0.003, 0.005, 0.01, 0.02, 0.03],
                 "subsample": [0.5, 0.6, 0.7, 0.8, 0.9],
                 "colsample_bytree": [0.5, 0.6, 0.7, 0.8, 0.9],
@@ -274,7 +227,6 @@ def candidates(random_state: int = 42) -> Dict[str, Candidate]:
                 "reg_lambda": [0.5, 1.0, 5.0, 10.0, 25.0, 50.0],
                 "gamma": [0.0, 0.1, 0.3, 1.0, 3.0],
                 "grow_policy": ["depthwise", "lossguide"],
->>>>>>> a46f8c960bf16b552f9b279aabc6145f56a0f4d0
             },
         )
     return cands

@@ -1,18 +1,25 @@
 """Time-series + spatial + calendar feature engineering and label construction.
 
+LEAKAGE AUDIT (per user request — see comments tagged ``# CAUSAL``):
+- Every rolling window now uses ``.shift(1)`` BEFORE ``.rolling(w)`` so that
+  ``fire_sum_7d`` answers "last 7 days NOT including today". The model still
+  sees today's data via separate ``*_today`` features.
+- Every lag uses ``.shift(lag)`` with ``lag >= 1`` (past only).
+- Streak counters and dry-streak use shifted fire flags so today's fire never
+  contributes to today's counter.
+- Trend/diff features (``frp_trend_*``) use ``shift(1).diff()`` semantics so
+  the comparison is between two past days, not today vs the past.
+- Same-week-last-year, season cumulatives, expanding fire rate — all use
+  ``.shift(1)`` on the cumulative path.
+
 All features are derived from REAL data sources only:
     - NASA FIRMS VIIRS NRT hotspots → fire_count, frp_*, bright_*, confidence_*
-      (loaded by data_loader.load_and_prepare and densified to cell-day rows)
-    - Spatial neighborhood = 8 surrounding grid cells, sourced from the same FIRMS frame
-    - Calendar = real datetime values (month, day_of_year, Thailand Jan-Apr burn season)
-    - Optional weather (when present in the daily frame): real ECMWF ERA5 reanalysis
-      via Open-Meteo Archive API, cached by fetch_weather.py. NOT generated.
+    - Spatial neighbourhood = 8 + 16 surrounding grid cells from same FIRMS frame
+    - Calendar = real datetime values
+    - Optional weather (when present): real ECMWF ERA5 via Open-Meteo Archive
 
 No synthetic / random / interpolated features. If a real source isn't available
 for a given column, the column is simply not added to FEATURES.
-
-Densified input is required so that rolling / lag windows are anchored to real
-calendar days (not the previous fire day).
 
 `FEATURES_CORE` is the always-on input contract. Use `resolve_features(df)` (or
 read `dataset_info.json["features"]`) to get the exact list the deployed model
@@ -32,15 +39,14 @@ from urban_areas import classify_urban
 log = logging.getLogger("features")
 
 MAX_PREDICTION_DAYS = 7
-LAG_DAYS: Tuple[int, ...] = (1, 2, 3, 7, 14, 30)
-ROLL_WINDOWS: Tuple[int, ...] = (3, 7, 14, 30)
-NEIGHBOR_LAGS: Tuple[int, ...] = (1, 3, 7)
-NEIGHBOR_ROLLS: Tuple[int, ...] = (3, 7)
+
+LAG_DAYS: Tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 14, 21, 30)
+ROLL_WINDOWS: Tuple[int, ...] = (3, 5, 7, 14, 21, 30, 60)  # 60 added per spec
+NEIGHBOR_LAGS: Tuple[int, ...] = (1, 2, 3, 5, 7)
+NEIGHBOR_ROLLS: Tuple[int, ...] = (3, 5, 7, 14)
 
 GROUP_KEYS = ["lat_grid", "lon_grid"]
 
-# Optional weather columns produced by fetch_weather.py + data_loader.merge_weather().
-# Each must be REAL ECMWF reanalysis or measured weather, not derived/imputed.
 WEATHER_COLUMNS: Tuple[str, ...] = (
     "temp_max",
     "temp_min",
@@ -53,61 +59,36 @@ WEATHER_ROLLS: Tuple[int, ...] = (3, 7)
 
 UrgencyLevel = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"]
 
-# Default fixed cutoffs — used as a fallback when no calibrated thresholds
-# have been persisted to dataset_info.json yet (e.g. before first training run).
 DEFAULT_URGENCY_THRESHOLDS: Dict[str, float] = {
-    "CRITICAL": 0.0,   # days <= 0
-    "HIGH": 2.0,       # days <= 2
-    "MEDIUM": 4.0,     # days <= 4
-    "LOW": float(MAX_PREDICTION_DAYS),  # days <= 7
+    "CRITICAL": 0.0,
+    "HIGH": 2.0,
+    "MEDIUM": 4.0,
+    "LOW": float(MAX_PREDICTION_DAYS),
 }
 
 
 # ─────────────────────────────────────────────
-# Urgency calibration — derived from REAL val
-# predictions, not arbitrary fixed numbers.
+# Urgency calibration
 # ─────────────────────────────────────────────
 def calibrate_urgency_thresholds(
     val_predictions: np.ndarray,
     horizon: int = MAX_PREDICTION_DAYS,
     quantiles: Tuple[float, float, float] = (0.25, 0.5, 0.75),
 ) -> Dict[str, float]:
-    """Compute urgency cutoffs from the real validation prediction distribution.
-
-    Lower predicted ``days_until_fire`` = more urgent. The cutoffs are simply the
-    25 / 50 / 75 percentiles of the actual model output on the held-out
-    validation slice — so the four buckets each carry roughly 25 % of the real
-    predictions, giving stable, distribution-aware tiers instead of arbitrary
-    fixed numbers.
-
-    Returns a dict of upper-bound (inclusive) thresholds:
-        {"CRITICAL": p25, "HIGH": p50, "MEDIUM": p75, "LOW": horizon}
-    """
     arr = np.asarray(val_predictions, dtype=float)
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
         return dict(DEFAULT_URGENCY_THRESHOLDS)
-
     q1, q2, q3 = np.quantile(arr, quantiles)
-    # Enforce monotonicity in case the distribution is degenerate (e.g. all
-    # predictions identical) and clamp to the prediction horizon.
     q1 = float(min(q1, horizon))
     q2 = float(min(max(q2, q1), horizon))
     q3 = float(min(max(q3, q2), horizon))
-
-    return {
-        "CRITICAL": q1,
-        "HIGH": q2,
-        "MEDIUM": q3,
-        "LOW": float(horizon),
-    }
+    return {"CRITICAL": q1, "HIGH": q2, "MEDIUM": q3, "LOW": float(horizon)}
 
 
 def urgency_from_thresholds(
-    days: float,
-    thresholds: Optional[Dict[str, float]] = None,
+    days: float, thresholds: Optional[Dict[str, float]] = None
 ) -> UrgencyLevel:
-    """Map a (real model output) days-until-fire value to an urgency tier."""
     t = thresholds or DEFAULT_URGENCY_THRESHOLDS
     d = float(days)
     if d <= t["CRITICAL"]:
@@ -122,30 +103,57 @@ def urgency_from_thresholds(
 
 
 def get_urgency(days: int) -> UrgencyLevel:
-    """Backwards-compatible fixed-threshold mapping. Prefer
-    ``urgency_from_thresholds`` with calibrated thresholds where available."""
     return urgency_from_thresholds(days, DEFAULT_URGENCY_THRESHOLDS)
 
 
 # ─────────────────────────────────────────────
-# Spatial neighbours — real FIRMS data, just
-# aggregated over the 8 surrounding grid cells.
+# Helpers — past-only rolling
+# ─────────────────────────────────────────────
+def _ensure_sorted(df: pd.DataFrame) -> pd.DataFrame:
+    return df.sort_values(GROUP_KEYS + ["date"]).reset_index(drop=True)
+
+
+def _past_roll(
+    df: pd.DataFrame, col: str, window: int, agg: str = "sum"
+) -> np.ndarray:
+    """CAUSAL: shift(1) before rolling — answers 'last <window> days, excluding today'.
+
+    Returns a 1-D numpy array aligned with df.index (df must already be sorted
+    by GROUP_KEYS + date).
+    """
+    grp = df.groupby(GROUP_KEYS, sort=False)[col]
+    shifted = grp.shift(1)
+    regrouped = shifted.groupby(
+        [df["lat_grid"], df["lon_grid"]], sort=False
+    ).rolling(window, min_periods=1)
+    if agg == "sum":
+        rolled = regrouped.sum()
+    elif agg == "max":
+        rolled = regrouped.max()
+    elif agg == "mean":
+        rolled = regrouped.mean()
+    elif agg == "std":
+        rolled = regrouped.std()
+    elif agg == "active":
+        rolled = regrouped.apply(lambda x: float((x > 0).sum()), raw=True)
+    else:
+        raise ValueError(f"Unsupported agg: {agg}")
+    return (
+        rolled.reset_index(level=[0, 1], drop=True)
+        .reindex(df.index)
+        .fillna(0)
+        .to_numpy()
+    )
+
+
+# ─────────────────────────────────────────────
+# Spatial neighbours (current-day aggregates — used downstream with shift)
 # ─────────────────────────────────────────────
 def add_neighbor_features(daily: pd.DataFrame, grid_size: float = 0.1) -> pd.DataFrame:
-    """Per-cell spatial aggregates over the surrounding grid.
+    """Per-cell spatial aggregates over the surrounding grid (3×3 and 5×5 rings).
 
-    Two concentric rings of neighbours so the model sees both immediate and
-    regional context:
-      * `neighbor_fire_today` / `neighbor_frp_today` = sum across the 8
-        cells that share an edge or corner (3×3 box minus centre).
-      * `wide_neighbor_fire_today` / `wide_neighbor_frp_today` = sum across
-        the OUTER ring of the 5×5 box only (16 cells at distance 2 from
-        the centre). Separating the rings lets the model weight "fire one
-        cell over" differently from "fire two cells over"; lumping them
-        would smear a strong adjacent signal across a much larger area.
-
-    Pure aggregation of REAL FIRMS detections — no smoothing or
-    interpolation. Cells without any neighbour activity get exact zero.
+    NOTE: produces *_today columns. The downstream add_temporal_features turns
+    them into past-only lag/roll features via shift(1).
     """
     df = daily.copy()
     df["lat_grid"] = df["lat_grid"].round(6)
@@ -163,8 +171,6 @@ def add_neighbor_features(daily: pd.DataFrame, grid_size: float = 0.1) -> pd.Dat
         (0, -1),           (0, 1),
         (1, -1),  (1, 0),  (1, 1),
     ]
-    # Outer ring of the 5×5 box: |dlat|=2 OR |dlon|=2, excluding the inner
-    # 3×3. 16 cells in total.
     outer_offsets = [
         (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2),
         (-1, -2),                             (-1, 2),
@@ -175,9 +181,6 @@ def add_neighbor_features(daily: pd.DataFrame, grid_size: float = 0.1) -> pd.Dat
 
     def _accumulate(offsets, fire_col, frp_col):
         for dlat, dlon in offsets:
-            # Shift each source row's coords by the *negative* offset so the
-            # row's (lat_grid, lon_grid) now equals the TARGET cell that has
-            # this row as its (dlat, dlon) neighbour.
             shifted = base.copy()
             shifted["lat_grid"] = (shifted["lat_grid"] - dlat * grid_size).round(6)
             shifted["lon_grid"] = (shifted["lon_grid"] - dlon * grid_size).round(6)
@@ -197,229 +200,228 @@ def add_neighbor_features(daily: pd.DataFrame, grid_size: float = 0.1) -> pd.Dat
 
 
 # ─────────────────────────────────────────────
-# Internal helpers
+# Temporal features — ALL rolling windows are past-only
 # ─────────────────────────────────────────────
-def _ensure_sorted(df: pd.DataFrame) -> pd.DataFrame:
-    return df.sort_values(GROUP_KEYS + ["date"]).reset_index(drop=True)
-
-
 def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
     """Lag, rolling-window, and trend features per cell.
 
-    Uses ONLY observed FIRMS counts/FRP and the spatial-neighbour aggregates
-    that were derived from the same real FIRMS frame.
+    CAUSAL audit: every rolling/trend feature here uses .shift(1) before
+    aggregation, so no row contains its own day in the aggregate.
     """
     df = _ensure_sorted(df).copy()
     grp = df.groupby(GROUP_KEYS, sort=False)
 
-    # ── per-cell self lags / rolls ──
+    # ── per-cell self lags (already past via shift(lag), lag>=1) ──
     for lag in LAG_DAYS:
-        df[f"fire_lag_{lag}"] = grp["fire_count"].shift(lag).fillna(0)
-        df[f"frp_lag_{lag}"] = grp["frp_sum"].shift(lag).fillna(0)
+        df[f"fire_lag_{lag}"] = grp["fire_count"].shift(lag).fillna(0)  # CAUSAL: past only
+        df[f"frp_lag_{lag}"]  = grp["frp_sum"].shift(lag).fillna(0)     # CAUSAL: past only
 
+    # ── per-cell rolling windows (shift(1) then rolling — past only) ──
     for w in ROLL_WINDOWS:
-        rolled_fire = grp["fire_count"].rolling(w, min_periods=1).sum()
-        rolled_frp_sum = grp["frp_sum"].rolling(w, min_periods=1).sum()
-        rolled_frp_max = grp["frp_max"].rolling(w, min_periods=1).max()
-        rolled_active = (
-            grp["fire_count"]
-            .rolling(w, min_periods=1)
-            .apply(lambda x: float((x > 0).sum()), raw=True)
-        )
+        df[f"fire_sum_{w}d"]    = _past_roll(df, "fire_count", w, "sum")     # CAUSAL
+        df[f"frp_sum_{w}d"]     = _past_roll(df, "frp_sum",    w, "sum")     # CAUSAL
+        df[f"frp_max_{w}d"]     = _past_roll(df, "frp_max",    w, "max")     # CAUSAL
+        df[f"active_days_{w}d"] = _past_roll(df, "fire_count", w, "active")  # CAUSAL
 
-        df[f"fire_sum_{w}d"] = rolled_fire.reset_index(level=GROUP_KEYS, drop=True)
-        df[f"frp_sum_{w}d"] = rolled_frp_sum.reset_index(level=GROUP_KEYS, drop=True)
-        df[f"frp_max_{w}d"] = rolled_frp_max.reset_index(level=GROUP_KEYS, drop=True)
-        df[f"active_days_{w}d"] = rolled_active.reset_index(level=GROUP_KEYS, drop=True)
+    # ── trend = lag1 - lag(k+1), so today is never used ──
+    df["frp_trend_1d"] = (df["frp_lag_1"].to_numpy() - df["frp_lag_2"].to_numpy())   # CAUSAL
+    df["frp_trend_3d"] = (df["frp_lag_1"].to_numpy() - df["frp_lag_4"].to_numpy())   # CAUSAL
+    df["frp_trend_7d"] = (df["frp_lag_1"].to_numpy() - df["frp_lag_7"].to_numpy() if "frp_lag_7" in df.columns
+                          else (df["frp_lag_1"].to_numpy() - grp["frp_sum"].shift(7).fillna(0).to_numpy()))  # CAUSAL
 
-    df["frp_trend_1d"] = grp["frp_sum"].diff().fillna(0)
-    df["frp_trend_3d"] = grp["frp_sum"].diff(3).fillna(0)
-    df["frp_trend_7d"] = grp["frp_sum"].diff(7).fillna(0)
+    df["fire_std_7d"] = _past_roll(df, "fire_count", 7, "std")  # CAUSAL
 
-    # Rolling fire-count std — burst vs steady patterns
-    rolled_fire_std = grp["fire_count"].rolling(7, min_periods=2).std().fillna(0)
-    df["fire_std_7d"] = rolled_fire_std.reset_index(level=GROUP_KEYS, drop=True)
+    # ── today-only signals (known at inference time, not leakage) ──
+    df["fire_count_today"]       = df["fire_count"].fillna(0)
+    df["frp_sum_today"]          = df["frp_sum"].fillna(0)
+    df["bright_mean_today"]      = df["bright_mean"].fillna(0)
+    df["confidence_mean_today"]  = df["confidence_mean"].fillna(0)
 
-    df["fire_count_today"] = df["fire_count"].fillna(0)
-    df["frp_sum_today"] = df["frp_sum"].fillna(0)
-    df["bright_mean_today"] = df["bright_mean"].fillna(0)
-    df["confidence_mean_today"] = df["confidence_mean"].fillna(0)
-    # Pass-through aggregates from data_loader. They're already on the daily
-    # frame; we just normalize NaN→0 for densified no-fire days.
-    if "night_fire_count" in df.columns:
-        df["night_fire_count"] = df["night_fire_count"].fillna(0)
-    if "afternoon_fire_count" in df.columns:
-        df["afternoon_fire_count"] = df["afternoon_fire_count"].fillna(0)
-    if "n_satellites_today" in df.columns:
-        df["n_satellites_today"] = df["n_satellites_today"].fillna(0)
-    # Hansen tree cover features (static per cell, present when cache is
-    # populated). Cells outside Thailand BBOX may not have coverage —
-    # NaN → 0 means "treat as bare ground" which is a sensible prior.
-    if "tree_cover_pct_2000" in df.columns:
-        df["tree_cover_pct_2000"] = df["tree_cover_pct_2000"].fillna(0)
-    if "tree_loss_pct_recent" in df.columns:
-        df["tree_loss_pct_recent"] = df["tree_loss_pct_recent"].fillna(0)
+    for opt_col in (
+        "night_fire_count",
+        "afternoon_fire_count",
+        "n_satellites_today",
+        "tree_cover_pct_2000",
+        "tree_loss_pct_recent",
+    ):
+        if opt_col in df.columns:
+            df[opt_col] = df[opt_col].fillna(0)
 
-    # Derived ratio / acceleration features (from FIRMS-sourced rolls above)
+    # ── derived features (past-only inputs ⇒ derived also past-only) ──
     df["fire_acceleration"] = (
-        df["fire_sum_7d"].to_numpy() / 7.0
-        - df["fire_sum_14d"].to_numpy() / 14.0
-    )
+        df["fire_sum_7d"].to_numpy() / 7.0 - df["fire_sum_14d"].to_numpy() / 14.0
+    )                                                                    # CAUSAL (past windows)
     df["frp_intensity_7d"] = (
-        df["frp_sum_7d"].to_numpy()
-        / df["fire_sum_7d"].clip(lower=1).to_numpy()
-    ).astype(float)
+        df["frp_sum_7d"].to_numpy() / np.clip(df["fire_sum_7d"].to_numpy(), 1, None)
+    ).astype(float)                                                      # CAUSAL
+
     if "night_fire_count" in df.columns:
         df["night_fire_ratio"] = (
             df["night_fire_count"].to_numpy()
-            / df["fire_count_today"].clip(lower=1).to_numpy()
+            / np.clip(df["fire_count_today"].to_numpy(), 1, None)
         ).astype(float)
-        df["night_fire_ratio"] = df["night_fire_ratio"].fillna(0.0)
+        df["night_fire_ratio"] = np.nan_to_num(df["night_fire_ratio"].to_numpy(), nan=0.0)
 
-    # ── neighbour lags / rolls (spatial signal from REAL adjacent-cell fires) ──
+    # ── fire_streak_today: consecutive past fire days ENDING yesterday ──
+    # CAUSAL: shift fire flag by 1 so today's fire never lights its own streak.
+    fire_flag_past = (grp["fire_count"].shift(1).fillna(0) > 0).astype(int).to_numpy()
+    lats = df["lat_grid"].to_numpy()
+    lons = df["lon_grid"].to_numpy()
+    streak_vals = np.zeros(len(df), dtype=np.float32)
+    run = 0
+    prev_key = None
+    for i in range(len(df)):
+        key = (lats[i], lons[i])
+        if key != prev_key:
+            run = 0
+            prev_key = key
+        run = run + 1 if fire_flag_past[i] else 0
+        streak_vals[i] = run
+    df["fire_streak_today"] = streak_vals  # CAUSAL: counts ≤ yesterday only
+
+    # ── fire_momentum_7_30: past 7d rate vs past 30d rate ──
+    df["fire_momentum_7_30"] = (
+        (df["fire_sum_7d"].to_numpy() / 7.0)
+        / np.clip(df["fire_sum_30d"].to_numpy() / 30.0, 0.01, None)
+    ).astype(float)                                                      # CAUSAL
+    df["fire_momentum_7_30"] = np.clip(df["fire_momentum_7_30"].to_numpy(), 0.0, 10.0)
+
+    # ── frp_per_fire_today: ratio of two known-today values, not leakage ──
+    df["frp_per_fire_today"] = (
+        df["frp_sum_today"].to_numpy()
+        / np.clip(df["fire_count_today"].to_numpy(), 1, None)
+    ).astype(float)
+
+    # ─────────────────────────────────────────
+    # NEW FEATURES (per user spec)
+    # ─────────────────────────────────────────
+    # fire_count_60d: rolling sum of fire_count over past 60 days (exclusive of today)
+    if "fire_sum_60d" not in df.columns:
+        df["fire_sum_60d"] = _past_roll(df, "fire_count", 60, "sum")     # CAUSAL
+    df["fire_count_60d"] = df["fire_sum_60d"].astype(float)              # alias per spec
+
+    # fire_frequency_rate: fire-active days / total days in past 60d window
+    active_days_60d = _past_roll(df, "fire_count", 60, "active")         # CAUSAL
+    df["fire_frequency_rate"] = (active_days_60d / 60.0).astype(float)   # in [0, 1]
+    # ─────────────────────────────────────────
+
+    # ── inner-ring neighbour lags / rolls ──
     if "neighbor_fire_today" in df.columns:
         for lag in NEIGHBOR_LAGS:
-            df[f"neighbor_fire_lag_{lag}"] = (
-                grp["neighbor_fire_today"].shift(lag).fillna(0)
-            )
-            df[f"neighbor_frp_lag_{lag}"] = (
-                grp["neighbor_frp_today"].shift(lag).fillna(0)
-            )
+            df[f"neighbor_fire_lag_{lag}"] = grp["neighbor_fire_today"].shift(lag).fillna(0)  # CAUSAL
+            df[f"neighbor_frp_lag_{lag}"]  = grp["neighbor_frp_today"].shift(lag).fillna(0)   # CAUSAL
         for w in NEIGHBOR_ROLLS:
-            rolled_n_fire = grp["neighbor_fire_today"].rolling(w, min_periods=1).sum()
-            rolled_n_frp = grp["neighbor_frp_today"].rolling(w, min_periods=1).sum()
-            df[f"neighbor_fire_sum_{w}d"] = rolled_n_fire.reset_index(
-                level=GROUP_KEYS, drop=True
-            )
-            df[f"neighbor_frp_sum_{w}d"] = rolled_n_frp.reset_index(
-                level=GROUP_KEYS, drop=True
-            )
-
-        # Fire-spread velocity: how is neighbour activity changing? A cell
-        # that just lit up (positive velocity) is at higher risk than one
-        # that's been smouldering for a week (zero velocity). Causal —
-        # uses today's value vs lag_3, no future leakage.
+            df[f"neighbor_fire_sum_{w}d"] = _past_roll(df, "neighbor_fire_today", w, "sum")   # CAUSAL
+            df[f"neighbor_frp_sum_{w}d"]  = _past_roll(df, "neighbor_frp_today",  w, "sum")   # CAUSAL
         df["neighbor_fire_velocity_3d"] = (
-            df["neighbor_fire_today"].to_numpy()
-            - df["neighbor_fire_lag_3"].to_numpy()
-        )
+            df["neighbor_fire_lag_1"].to_numpy() - df["neighbor_fire_lag_3"].to_numpy()
+        )  # CAUSAL: yesterday vs 3 days ago, no today
         df["neighbor_frp_velocity_3d"] = (
-            df["neighbor_frp_today"].to_numpy()
-            - df["neighbor_frp_lag_3"].to_numpy()
-        )
+            df["neighbor_frp_lag_1"].to_numpy() - df["neighbor_frp_lag_3"].to_numpy()
+        )  # CAUSAL
 
-    # ── 5×5 outer-ring neighbour lags / rolls (regional-scale fire signal) ──
-    # Treated separately from the inner 3×3 ring so the model can weight
-    # near vs far adjacency differently.
+    # ── outer-ring (5×5) neighbour lags / rolls ──
     if "wide_neighbor_fire_today" in df.columns:
         for lag in NEIGHBOR_LAGS:
-            df[f"wide_neighbor_fire_lag_{lag}"] = (
-                grp["wide_neighbor_fire_today"].shift(lag).fillna(0)
-            )
+            df[f"wide_neighbor_fire_lag_{lag}"] = grp["wide_neighbor_fire_today"].shift(lag).fillna(0)  # CAUSAL
         for w in NEIGHBOR_ROLLS:
-            rolled = grp["wide_neighbor_fire_today"].rolling(w, min_periods=1).sum()
-            df[f"wide_neighbor_fire_sum_{w}d"] = rolled.reset_index(
-                level=GROUP_KEYS, drop=True
-            )
-        # Spread velocity for outer ring — mirrors inner-ring velocity
+            df[f"wide_neighbor_fire_sum_{w}d"] = _past_roll(df, "wide_neighbor_fire_today", w, "sum")   # CAUSAL
         df["wide_neighbor_fire_velocity_3d"] = (
-            df["wide_neighbor_fire_today"].to_numpy()
-            - df["wide_neighbor_fire_lag_3"].to_numpy()
-        )
+            df["wide_neighbor_fire_lag_1"].to_numpy() - df["wide_neighbor_fire_lag_3"].to_numpy()
+        )  # CAUSAL
 
     if "wide_neighbor_frp_today" in df.columns:
         for lag in NEIGHBOR_LAGS:
-            df[f"wide_neighbor_frp_lag_{lag}"] = (
-                grp["wide_neighbor_frp_today"].shift(lag).fillna(0)
-            )
+            df[f"wide_neighbor_frp_lag_{lag}"] = grp["wide_neighbor_frp_today"].shift(lag).fillna(0)  # CAUSAL
         for w in NEIGHBOR_ROLLS:
-            rolled_wfrp = grp["wide_neighbor_frp_today"].rolling(w, min_periods=1).sum()
-            df[f"wide_neighbor_frp_sum_{w}d"] = rolled_wfrp.reset_index(
-                level=GROUP_KEYS, drop=True
-            )
+            df[f"wide_neighbor_frp_sum_{w}d"] = _past_roll(df, "wide_neighbor_frp_today", w, "sum")    # CAUSAL
 
-    # ── weather lags / rolls (only when REAL weather columns are present) ──
+    # ── weather lags / rolls (past-only) ──
     weather_cols_present = [c for c in WEATHER_COLUMNS if c in df.columns]
     if weather_cols_present:
         for col in weather_cols_present:
-            # Today's value = real measurement / reanalysis at the base date
             df[f"{col}_today"] = df[col].fillna(0)
             for lag in WEATHER_LAGS:
-                df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)
+                df[f"{col}_lag_{lag}"] = grp[col].shift(lag).fillna(0)         # CAUSAL
             for w in WEATHER_ROLLS:
-                rolled = grp[col].rolling(w, min_periods=1).mean()
-                df[f"{col}_mean_{w}d"] = rolled.reset_index(level=GROUP_KEYS, drop=True)
+                df[f"{col}_mean_{w}d"] = _past_roll(df, col, w, "mean")        # CAUSAL
 
     return df
 
 
+# ─────────────────────────────────────────────
+# Calendar features
+# ─────────────────────────────────────────────
 def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Cyclic month / day-of-year and a Thailand burn-season flag (Jan–Apr).
-
-    All values come directly from the row's real ``date`` field.
-    """
+    """Cyclic encodings and Thai burn/dry-season flags. CAUSAL: depends only on date."""
     df = df.copy()
     dt = pd.to_datetime(df["date"])
     df["month"] = dt.dt.month
     df["day_of_year"] = dt.dt.dayofyear
-    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12.0)
-    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12.0)
-    df["doy_sin"] = np.sin(2 * np.pi * df["day_of_year"] / 365.0)
-    df["doy_cos"] = np.cos(2 * np.pi * df["day_of_year"] / 365.0)
-    df["is_burn_season"] = dt.dt.month.between(1, 4).astype(int)
-    # Distance from the peak of Thailand's burn season (mid-March, DOY ~75).
-    # Lets the model see "how deep into burn season are we" without relying
-    # solely on cyclic month/DOY which conflate Jan-far-from-peak with
-    # April-far-from-peak. Symmetric around DOY 75; clipped to [0, 100].
+    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12.0)   # CAUSAL: pure calendar
+    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12.0)   # CAUSAL
+    df["doy_sin"]   = np.sin(2 * np.pi * df["day_of_year"] / 365.0)  # CAUSAL
+    df["doy_cos"]   = np.cos(2 * np.pi * df["day_of_year"] / 365.0)  # CAUSAL
+
+    # is_burn_season: Thai burn months Jan–Apr (kept for backwards compat)
+    df["is_burn_season"] = dt.dt.month.between(1, 4).astype(int)            # CAUSAL
+
+    # NEW: is_dry_season per user spec — months Feb–May
+    df["is_dry_season"] = dt.dt.month.isin([2, 3, 4, 5]).astype(int)        # CAUSAL
+
     BURN_PEAK_DOY = 75
-    df["days_from_burn_peak"] = (
-        (df["day_of_year"] - BURN_PEAK_DOY).abs().clip(upper=100)
-    )
+    df["days_from_burn_peak"] = (df["day_of_year"] - BURN_PEAK_DOY).abs().clip(upper=100)  # CAUSAL
+
+    df["week_of_year"] = dt.dt.isocalendar().week.astype(int)
+    df["week_sin"] = np.sin(2 * np.pi * df["week_of_year"] / 52.0)          # CAUSAL
+    df["week_cos"] = np.cos(2 * np.pi * df["week_of_year"] / 52.0)          # CAUSAL
+    df["day_of_week"] = dt.dt.dayofweek.astype(int)                          # CAUSAL
+    df["is_weekend"]  = (dt.dt.dayofweek >= 5).astype(int)                   # CAUSAL
+
     return df
 
 
+# ─────────────────────────────────────────────
+# days_since_last_fire — CAUSAL
+# ─────────────────────────────────────────────
 def add_dry_streak(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-cell days-since-last-fire counter, anchored to densified calendar days.
+    """Per-cell days-since-last-fire counter.
 
-    For each row at date t, ``days_since_last_fire`` = number of consecutive
-    fire-free days ending at t (inclusive). On a fire day this is 0; on a
-    no-fire day it is 1 + previous day's value. Captures vegetation-rebuild
-    time between fire events — a strong predictor of when the next fire
-    becomes possible. Causal: uses only the row's own date and earlier.
+    CAUSAL: uses the fire flag shifted by 1, so today's fire never resets
+    today's counter. On the day of a fire, days_since_last_fire reflects how
+    long since the *previous* fire — not zero.
     """
     df = _ensure_sorted(df).copy()
-    fire_flag = (df["fire_count"].fillna(0) > 0).astype(int)
-    # Each fire bumps the per-cell "block id"; within a block, the row's
-    # position is the count of dry days since (and including) the most
-    # recent fire-day.
-    block = fire_flag.groupby([df["lat_grid"], df["lon_grid"]]).cumsum()
-    df["_dry_block"] = block
+    grp_fire = df.groupby(GROUP_KEYS, sort=False)["fire_count"]
+    fire_flag_past = (grp_fire.shift(1).fillna(0) > 0).astype(int)  # CAUSAL: yesterday's flag
+
+    # block id increments each time a past fire occurred — within block the
+    # cumcount is the number of days since that fire.
+    block = fire_flag_past.groupby([df["lat_grid"], df["lon_grid"]]).cumsum()
+    df["_dry_block"] = block.to_numpy()
     df["days_since_last_fire"] = (
-        df.groupby(GROUP_KEYS + ["_dry_block"]).cumcount()
-    )
+        df.groupby(GROUP_KEYS + ["_dry_block"]).cumcount() + 1
+    ).astype(int)
+    # Before any past fire has occurred (block==0), there is no "last fire" —
+    # set to a large sentinel so the model can distinguish "never burned" from
+    # "burned recently".
+    df.loc[df["_dry_block"] == 0, "days_since_last_fire"] = 999
     df.drop(columns=["_dry_block"], inplace=True)
     return df
 
 
 def add_cumulative_fire_rate(df: pd.DataFrame) -> pd.DataFrame:
-    """Annualized fire-day rate per cell using ONLY data observed before each
-    row's date. No leakage — at row t we use [t0..t-1] history.
-
-    The "static" full-history rate that risk_map.py uses for filtering would
-    leak future observations into training rows, so we compute an expanding-
-    window equivalent here. Cells with <30 observed days of history get NaN
-    (filled to 0 at model-input time, treated as "rate unknown").
-    """
+    """Annualized fire-day rate per cell. CAUSAL: shift(1) on cumsum."""
     df = _ensure_sorted(df).copy()
     fire_flag = (df["fire_count"].fillna(0) > 0).astype(int)
-    grp = fire_flag.groupby([df["lat_grid"], df["lon_grid"]])
-    # Cumulative fire-days up to (but not including) this row.
-    cum_fires = grp.cumsum().groupby([df["lat_grid"], df["lon_grid"]]).shift(1).fillna(0)
-    # Days observed before this row (0-indexed cumcount = days before today).
+    cum_fires = (
+        fire_flag.groupby([df["lat_grid"], df["lon_grid"]]).cumsum()
+        .groupby([df["lat_grid"], df["lon_grid"]]).shift(1).fillna(0)
+    )  # CAUSAL: cumulative up to yesterday
     days_before = df.groupby(GROUP_KEYS).cumcount()
     rate = np.where(
         days_before >= 30,
-        cum_fires * 365.25 / days_before.clip(lower=1),
+        cum_fires.to_numpy() * 365.25 / np.clip(days_before.to_numpy(), 1, None),
         0.0,
     )
     df["fire_days_per_year_so_far"] = rate.astype(float)
@@ -427,60 +429,27 @@ def add_cumulative_fire_rate(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_season_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-cell within-season cumulative fire count and days into current burn season.
-
-    Two features that capture the seasonal state independently of the
-    rolling windows (which are fixed at 3/7/14/30 days):
-
-    ``season_fire_count_so_far``: cumulative fire detections for this cell
-    since the start of the current Thailand burn season (Jan 1). Resets
-    each calendar year. Causal — uses only rows before the current date.
-    Cells that have already burned heavily this season are approaching
-    exhaustion; cells with zero burns are in a build-up phase. Both patterns
-    matter for predicting the NEXT fire date.
-
-    ``days_into_burn_season``: for Jan–Apr rows, how many days since Jan 1;
-    for other months, 0. Gives the model a monotonic within-season clock that
-    the cyclic doy_sin/doy_cos can't express cleanly.
-    """
+    """Within-year fire count + days into burn season. CAUSAL on cumulative."""
     df = _ensure_sorted(df).copy()
     dt = pd.to_datetime(df["date"])
-
-    # Season year = calendar year (Thailand burn season Jan–Apr)
     df["_season_year"] = dt.dt.year
 
-    # Days into burn season (Jan 1 = 1, non-season months = 0)
     in_season = dt.dt.month.between(1, 4)
-    df["days_into_burn_season"] = np.where(
-        in_season,
-        dt.dt.dayofyear,
-        0,
-    ).astype(float)
+    df["days_into_burn_season"] = np.where(in_season, dt.dt.dayofyear, 0).astype(float)  # CAUSAL
 
-    # Cumulative fires since Jan 1 of the current year, per cell, causal
     fire_flag = (df["fire_count"].fillna(0) > 0).astype(float)
-    year_grp = fire_flag.groupby([df["lat_grid"], df["lon_grid"], df["_season_year"]])
-    # cumsum then shift(1) → fires BEFORE this row (no leakage)
-    cum_fires = year_grp.cumsum().groupby(
-        [df["lat_grid"], df["lon_grid"], df["_season_year"]]
-    ).shift(1).fillna(0)
-    df["season_fire_count_so_far"] = cum_fires.to_numpy().astype(float)
-
+    cum = (
+        fire_flag.groupby([df["lat_grid"], df["lon_grid"], df["_season_year"]]).cumsum()
+        .groupby([df["lat_grid"], df["lon_grid"], df["_season_year"]]).shift(1).fillna(0)
+    )  # CAUSAL: up to yesterday
+    df["season_fire_count_so_far"] = cum.to_numpy().astype(float)
     df.drop(columns=["_season_year"], inplace=True)
     return df
 
 
 def add_urban_distance(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-cell great-circle distance to the nearest curated Thai urban centre.
-
-    Pure spatial feature, identical for every date of the same cell. Cells in
-    the city centre have small values; remote forest cells have large values.
-    Lets the model distinguish wildfire signal from city noise that escaped
-    the urban-exclusion filter (suburban edges, garbage burns, etc.).
-    """
+    """Per-cell great-circle distance to nearest Thai city. CAUSAL: static geography."""
     df = df.copy()
-    # Compute once per (lat, lon) cell, then merge — classify_urban over the
-    # full row count would do redundant work since most cells have 447 rows.
     cells = df[["lat_grid", "lon_grid"]].drop_duplicates().reset_index(drop=True)
     _, urban_dist, _ = classify_urban(
         cells["lat_grid"].to_numpy(),
@@ -492,20 +461,12 @@ def add_urban_distance(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_fire_recurrence_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-cell fire periodicity and same-day-of-year historical signal.
+    """Per-cell fire periodicity + same-week-last-year signal.
 
-    New features:
-    ``median_fire_gap``: expanding-window median days between consecutive
-    fires for this cell. Prior = 30 days when history is too short.
-
-    ``days_since_last_fire_norm``: days_since_last_fire / median_fire_gap.
-    < 1 means "due soon"; > 2 means "overdue relative to typical cycle".
-
-    ``same_week_fire_last_year``: binary — did this cell have a fire in the
-    same ±7-day window of the previous calendar year? Strong seasonal anchor.
-
-    ``fire_count_same_month_hist``: average fires for this cell in the same
-    calendar month across prior years (causal: shifted by 1 year).
+    CAUSAL: median_fire_gap is an EXPANDING median over past gaps; the
+    same-week-last-year merge uses _prev_year so today's row only learns from
+    prior calendar years; the per-month historical mean uses .shift(1) on the
+    expanding mean so the current year doesn't leak.
     """
     df = _ensure_sorted(df).copy()
     dt = pd.to_datetime(df["date"])
@@ -516,7 +477,6 @@ def add_fire_recurrence_features(df: pd.DataFrame) -> pd.DataFrame:
     df["_month"] = dt.dt.month
     df["_row_date"] = dt
 
-    # ── expanding median inter-fire gap ──
     prev_fire_date = (
         df.where(df["_fire_flag"] == 1)
         .groupby(GROUP_KEYS)["_row_date"]
@@ -532,7 +492,6 @@ def add_fire_recurrence_features(df: pd.DataFrame) -> pd.DataFrame:
     df["median_fire_gap"] = gap_med.to_numpy()
     df["median_fire_gap"] = df["median_fire_gap"].fillna(30.0)
 
-    # Normalised dry streak
     df["days_since_last_fire_norm"] = (
         df.get("days_since_last_fire", pd.Series(0, index=df.index))
         / df["median_fire_gap"].clip(lower=1.0)
@@ -558,7 +517,7 @@ def add_fire_recurrence_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["same_week_fire_last_year"] = df["_had_fire_window"].fillna(0).astype(float)
 
-    # ── historical average fire count per month (prior years only) ──
+    # ── historical avg fire count per month (prior years only) ──
     monthly = (
         df[df["_fire_flag"] == 1]
         .groupby(["lat_grid", "lon_grid", "_year", "_month"])
@@ -581,7 +540,6 @@ def add_fire_recurrence_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["fire_count_same_month_hist"] = df["_hist_mean"].fillna(0).astype(float)
 
-    # Drop temp columns
     drop_cols = [c for c in df.columns if c.startswith("_")]
     df.drop(columns=drop_cols, errors="ignore", inplace=True)
     return df
@@ -590,12 +548,7 @@ def add_fire_recurrence_features(df: pd.DataFrame) -> pd.DataFrame:
 def make_label_days_until_fire(
     df: pd.DataFrame, horizon: int = MAX_PREDICTION_DAYS
 ) -> pd.DataFrame:
-    """Vectorized label: days until the next strict-future fire in this cell, ≤ horizon.
-
-    Requires `df` to be densified (consecutive calendar days per cell). Rows with
-    no fire in the next `horizon` days get label = -1 and are excluded from
-    training downstream.
-    """
+    """Vectorized label: days until next strict-future fire in this cell, ≤ horizon."""
     df = _ensure_sorted(df).copy()
     labels = np.full(len(df), -1, dtype=np.int8)
     fire_today = (df["fire_count"].fillna(0) > 0).astype(np.int8)
@@ -621,13 +574,6 @@ def build_features(
     horizon: int = MAX_PREDICTION_DAYS,
     grid_size: float = 0.1,
 ) -> pd.DataFrame:
-    """End-to-end feature construction from a daily cell-day frame.
-
-    Order matters: spatial neighbours must be computed BEFORE temporal lags so
-    that ``neighbor_fire_lag_*`` etc. can be derived from the per-day neighbour
-    aggregate. Static cell features (urban distance, climatological fire rate)
-    and per-row derivatives (dry streak, days-from-burn-peak) come after.
-    """
     df = add_neighbor_features(daily, grid_size=grid_size)
     df = add_temporal_features(df)
     df = add_calendar_features(df)
@@ -647,7 +593,7 @@ def build_features(
 
 
 # ─────────────────────────────────────────────
-# Feature contract
+# Feature contract — single source of truth
 # ─────────────────────────────────────────────
 def _build_core_feature_list() -> List[str]:
     cols: List[str] = []
@@ -666,57 +612,59 @@ def _build_core_feature_list() -> List[str]:
         "frp_sum_today",
         "bright_mean_today",
         "confidence_mean_today",
-        # Time-of-day stratification + multi-satellite consensus (no lags
-        # for now — add if importance scores show they help).
         "night_fire_count",
         "afternoon_fire_count",
         "n_satellites_today",
     ]
-    # Derived ratio / acceleration features
-    cols += ["fire_acceleration", "frp_intensity_7d", "night_fire_ratio"]
-    # Spatial neighbour signals (always emitted by add_neighbor_features)
-    # Inner ring: 3×3 box minus centre (8 cells)
+    cols += [
+        "fire_acceleration",
+        "frp_intensity_7d",
+        "night_fire_ratio",
+        "fire_streak_today",
+        "fire_momentum_7_30",
+        "frp_per_fire_today",
+        # NEW per spec
+        "fire_count_60d",
+        "fire_frequency_rate",
+    ]
+    # spatial inner ring
     cols += ["neighbor_fire_today", "neighbor_frp_today"]
     cols += [f"neighbor_fire_lag_{l}" for l in NEIGHBOR_LAGS]
     cols += [f"neighbor_frp_lag_{l}" for l in NEIGHBOR_LAGS]
     for w in NEIGHBOR_ROLLS:
         cols += [f"neighbor_fire_sum_{w}d", f"neighbor_frp_sum_{w}d"]
-    # Spread velocity: today's neighbour activity vs lag_3 — captures
-    # whether a fire is sweeping toward this cell.
     cols += ["neighbor_fire_velocity_3d", "neighbor_frp_velocity_3d"]
-    # Outer ring: 5×5 box minus inner 3×3 (16 cells, regional scale)
+    # outer ring
     cols += ["wide_neighbor_fire_today", "wide_neighbor_frp_today"]
     cols += [f"wide_neighbor_fire_lag_{l}" for l in NEIGHBOR_LAGS]
     cols += [f"wide_neighbor_frp_lag_{l}" for l in NEIGHBOR_LAGS]
     for w in NEIGHBOR_ROLLS:
         cols += [f"wide_neighbor_fire_sum_{w}d", f"wide_neighbor_frp_sum_{w}d"]
     cols += ["wide_neighbor_fire_velocity_3d"]
-    # Calendar signals
+    # calendar
     cols += [
         "month_sin", "month_cos", "doy_sin", "doy_cos",
-        "is_burn_season", "days_from_burn_peak",
+        "is_burn_season", "is_dry_season",   # is_dry_season is NEW per spec
+        "days_from_burn_peak",
+        "week_sin", "week_cos",
+        "day_of_week", "is_weekend",
     ]
-    # Tier-1 added features: per-cell static + per-row causal derivatives.
+    # per-cell static + causal derivatives
     cols += [
-        "distance_to_nearest_city_km",  # static, spatial
-        "fire_days_per_year_so_far",    # expanding-window, no leakage
-        "days_since_last_fire",         # causal dry-streak
-        "season_fire_count_so_far",     # within-season cumulative fires (causal)
-        "days_into_burn_season",        # monotonic within-season clock
-        # Fire recurrence / periodicity features (causal)
-        "median_fire_gap",              # expanding median inter-fire gap (days)
-        "days_since_last_fire_norm",    # dry streak / median gap ratio
-        "same_week_fire_last_year",     # binary: fire in ±7d window last year
-        "fire_count_same_month_hist",   # avg fires this month in prior years
+        "distance_to_nearest_city_km",
+        "fire_days_per_year_so_far",
+        "days_since_last_fire",
+        "season_fire_count_so_far",
+        "days_into_burn_season",
+        "median_fire_gap",
+        "days_since_last_fire_norm",
+        "same_week_fire_last_year",
+        "fire_count_same_month_hist",
     ]
-    # Hansen GFC vegetation context — only emitted when the tree-cover
-    # cache exists (resolve_features filters by actual presence). Tells
-    # the model "what's there to burn": dense forest cells (high cover)
-    # behave very differently from grassland (low cover) given the same
-    # fire history.
+    # vegetation
     cols += [
-        "tree_cover_pct_2000",     # static, % canopy cover at baseline
-        "tree_loss_pct_recent",    # static, % pixels lost forest 2018-2023
+        "tree_cover_pct_2000",
+        "tree_loss_pct_recent",
     ]
     cols += ["lat_grid", "lon_grid"]
     return cols
@@ -735,16 +683,11 @@ def _build_weather_feature_list() -> List[str]:
 
 FEATURES_CORE: Tuple[str, ...] = tuple(_build_core_feature_list())
 FEATURES_WEATHER: Tuple[str, ...] = tuple(_build_weather_feature_list())
-
-# Backwards-compat alias. Consumers that need the *exact* deployed-model
-# contract should call resolve_features(df) or read dataset_info.json["features"].
 FEATURES: Tuple[str, ...] = FEATURES_CORE
 
 
 def resolve_features(df: pd.DataFrame) -> List[str]:
-    """Return the feature list actually present in `df`, including weather
-    columns when fetch_weather.py has supplied them. Pure column existence
-    check — no heuristics."""
+    """Return the feature list actually present in `df`, including weather columns."""
     feats: List[str] = [c for c in FEATURES_CORE if c in df.columns]
     feats += [c for c in FEATURES_WEATHER if c in df.columns]
     return feats

@@ -48,20 +48,48 @@ export default function MapView(props: MapViewProps) {
     livefire: null,
   });
 
+  // Theme-aware tile layer — swaps the basemap when the user toggles light/dark
+  // mode (ThemeToggle sets <html data-theme="light">). Kept as a ref so we can
+  // remove/add it cleanly without recreating the whole map.
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+
+  const tileUrlFor = (theme: "light" | "dark") =>
+    theme === "light"
+      ? "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+
+  const currentTheme = (): "light" | "dark" =>
+    document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+
   // One-time map init.
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
     const map = L.map(containerRef.current, { center: [15.0, 101.0], zoom: 6 });
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
+    tileLayerRef.current = L.tileLayer(tileUrlFor(currentTheme()), {
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
     }).addTo(map);
 
     map.on("zoomend", () => reclampAllMarkers(layersRef.current, map));
     mapRef.current = map;
 
+    // Watch for theme changes from ThemeToggle and swap tiles live.
+    const observer = new MutationObserver(() => {
+      if (!mapRef.current || !tileLayerRef.current) return;
+      mapRef.current.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = L.tileLayer(tileUrlFor(currentTheme()), {
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      }).addTo(mapRef.current);
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
     return () => {
+      observer.disconnect();
       map.remove();
       mapRef.current = null;
+      tileLayerRef.current = null;
     };
   }, []);
 
@@ -211,30 +239,75 @@ function buildPredictedLayer(map: L.Map, features: FireFeature[], gridM: number)
 
     const fireDate = p.predicted_fire_date ?? "—";
     const daysUntil = p.days_until_fire ?? 0;
-    const confidence = p.confidence != null ? (p.confidence * 100).toFixed(0) : "—";
-    const rawPred = p.raw_prediction != null ? Number(p.raw_prediction).toFixed(2) : null;
+    // raw_prediction is pseudo-days from the binary classifier:
+    //   days = 1 + (1 - prob) * 6   (see train.py _prob_to_days_for_compat)
+    // Invert to recover the operationally-meaningful probability.
+    //   prob = 1 - (days - 1) / 6   clipped to [0, 1]
+    const rawPred = p.raw_prediction;
+    let probability: number | null = null;
+    if (typeof rawPred === "number" && isFinite(rawPred)) {
+      probability = Math.max(0, Math.min(1, 1 - (rawPred - 1) / 6));
+    }
     const histCount = p.historical_fire_count_30d;
 
+    // Risk-tier headline label (Thai) per urgency. Maps the calibrated
+    // urgency tier to operator-language so the popup reads at a glance.
+    const urgencyTh: Record<UrgencyLevel, string> = {
+      CRITICAL: "🔴 เสี่ยงสูงมาก",
+      HIGH:     "🟠 เสี่ยงสูง",
+      MEDIUM:   "🟡 เสี่ยงปานกลาง",
+      LOW:      "🟢 เสี่ยงต่ำ",
+      NONE:     "⚪ ไม่ระบุ",
+    };
+    const urgencyLabel = urgencyTh[urgency];
+
+    // Probability tier paraphrase — bind the % to ground-truth intuition.
+    // Calibration is rough (model is not calibrated probability-wise) but
+    // gives the operator a feel for what the number means in practice.
+    let probInterpretation = "";
+    if (probability !== null) {
+      if (probability >= 0.7)       probInterpretation = "≈ ใน 10 cell ระดับนี้ ~7+ เกิดไฟใน 3 วัน";
+      else if (probability >= 0.5)  probInterpretation = "≈ ใน 10 cell ระดับนี้ ~5 เกิดไฟใน 3 วัน";
+      else if (probability >= 0.35) probInterpretation = "≈ ใน 10 cell ระดับนี้ ~3 เกิดไฟใน 3 วัน";
+      else if (probability >= 0.2)  probInterpretation = "≈ ใน 10 cell ระดับนี้ ~2 เกิดไฟใน 3 วัน";
+      else                          probInterpretation = "≈ ใน 10 cell ระดับนี้ &lt;1 เกิดไฟใน 3 วัน";
+    }
+
+    const probPct = probability !== null ? Math.round(probability * 100) : null;
+    const barPct = probPct ?? 0;
+
     let html =
-      `<div class="popup" style="min-width:220px;">
-         <b style="color:${color};">🔮 Fire Prediction</b><br>
-         <div class="popup-block">
+      `<div class="popup" style="min-width:240px;">
+         <div style="font-weight:600; color:${color}; font-size:14px; margin-bottom:4px;">
+           ${urgencyLabel}
+         </div>`;
+    if (probPct !== null) {
+      html +=
+        `<div style="margin:6px 0;">
+           <div style="font-size:11px; color:#9aa0aa;">โอกาสเกิดไฟใน 3 วัน</div>
+           <div style="font-size:26px; font-weight:700; line-height:1;">${probPct}%</div>
+           <div style="margin-top:4px; height:6px; background:#22272e; border-radius:3px; overflow:hidden;">
+             <div style="height:100%; width:${barPct}%; background:${color};"></div>
+           </div>
+           <div style="font-size:10px; color:#6c707a; margin-top:4px;">${probInterpretation}</div>
+         </div>`;
+    } else {
+      html +=
+        `<div class="popup-block">
            <b>Predicted: ${fireDate}</b><br>
-           <small>In ${daysUntil} day${daysUntil !== 1 ? "s" : ""}` +
-      (rawPred ? ` (raw=${rawPred})` : "") +
-      `</small>
-         </div>
-         <small>Urgency: <b>${p.urgency_level ?? "—"}</b> (calibrated)</small><br>
-         <small>Confidence (rounding proxy): ${confidence}%</small><br>`;
+           <small>In ${daysUntil} day${daysUntil !== 1 ? "s" : ""}</small>
+         </div>`;
+    }
+    html += `<small>ทำนายวันที่: <b>${fireDate}</b></small><br>`;
     if (histCount != null)
-      html += `<small>Historical fires (30d, FIRMS): <b>${histCount}</b></small><br>`;
+      html += `<small>ไฟใน 30 วันที่ผ่านมา (FIRMS): <b>${histCount}</b></small><br>`;
     if (p.fire_days_per_year != null)
-      html += `<small>Historical rate: <b>${Number(p.fire_days_per_year).toFixed(1)}</b> fire-days/year</small><br>`;
+      html += `<small>อัตราเกิดไฟ: <b>${Number(p.fire_days_per_year).toFixed(1)}</b> วัน/ปี</small><br>`;
     if (p.nearest_urban_area && p.nearest_urban_distance_km != null) {
       const km = Number(p.nearest_urban_distance_km).toFixed(1);
-      html += `<small>Nearest city: ${p.nearest_urban_area} (${km} km)</small><br>`;
+      html += `<small>เมืองใกล้สุด: ${p.nearest_urban_area} (${km} km)</small><br>`;
     }
-    html += `<small>Cell: ${lat.toFixed(3)}°, ${lon.toFixed(3)}°</small></div>`;
+    html += `<small>พิกัด: ${lat.toFixed(3)}°, ${lon.toFixed(3)}°</small></div>`;
     marker.bindPopup(html);
     layer.addLayer(marker);
   }
