@@ -25,9 +25,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+import asyncio
+
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -672,6 +675,132 @@ def get_notify_log(limit: int = 100):
     with _NOTIFY_LOG_LOCK:
         snapshot = list(_NOTIFY_LOG)[:limit]
     return {"count": len(snapshot), "records": snapshot}
+
+
+# =====================================
+# /api/fires/stream — Server-Sent Events for true real-time fire alerts
+# =====================================
+#
+# Backend polls GISTDA NRT VIIRS every GISTDA_POLL_SECONDS and pushes new
+# detections to every connected SSE client instantly. Compared to the old
+# frontend-only polling (every 5 min per browser):
+#   • One backend poll serves all clients (less GISTDA load if 10 operators)
+#   • New fire reaches every dashboard within ~60s of GISTDA publishing it
+#   • Browser back-grounded tabs still receive events
+#
+# The backend keeps a deque-bounded set of seen fire IDs so we only emit
+# *new* fires after the first poll completes — same first-load behaviour as
+# the frontend hook.
+GISTDA_POLL_SECONDS = 60
+GISTDA_NPP_URL = (
+    "https://fire.gistda.or.th/server/rest/services/Hosted/"
+    "VIIRS_SNPP_NRT_View/FeatureServer/0/query"
+    "?where=1%3D1&outFields=*&f=geojson&returnGeometry=true"
+)
+_GISTDA_SEEN: set[str] = set()
+_GISTDA_LATEST: list[dict] = []
+_GISTDA_SUBSCRIBERS: "list[asyncio.Queue]" = []
+_GISTDA_TASK: "asyncio.Task | None" = None
+_GISTDA_LOCK = asyncio.Lock()
+
+
+def _gistda_stable_id(attrs: dict) -> str:
+    lat = float(attrs.get("latitude") or 0)
+    lon = float(attrs.get("longitude") or 0)
+    return f"{lat:.4f},{lon:.4f},{attrs.get('date','')},{attrs.get('time','')},{attrs.get('satellite','')}"
+
+
+async def _gistda_poll_loop():
+    """Background task: poll GISTDA, fan-out new detections to SSE queues."""
+    first_run = True
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        while True:
+            try:
+                r = await client.get(GISTDA_NPP_URL)
+                if r.status_code == 200:
+                    payload = r.json()
+                    feats = payload.get("features", []) or []
+                    new_records = []
+                    async with _GISTDA_LOCK:
+                        for f in feats:
+                            attrs = (f.get("properties") or f.get("attributes") or {})
+                            fid = _gistda_stable_id(attrs)
+                            if fid in _GISTDA_SEEN:
+                                continue
+                            _GISTDA_SEEN.add(fid)
+                            if not first_run:
+                                new_records.append({"id": fid, "attributes": attrs})
+                        # Keep the seen-set bounded
+                        if len(_GISTDA_SEEN) > 5000:
+                            _GISTDA_SEEN.clear()
+                            _GISTDA_SEEN.update(_gistda_stable_id(
+                                f.get("properties") or f.get("attributes") or {}
+                            ) for f in feats)
+                        _GISTDA_LATEST.clear()
+                        _GISTDA_LATEST.extend({"attributes": (f.get("properties") or f.get("attributes") or {})} for f in feats)
+                    # Push to all subscribers (non-blocking — drop full queues)
+                    for q in list(_GISTDA_SUBSCRIBERS):
+                        for rec in new_records:
+                            try:
+                                q.put_nowait(rec)
+                            except asyncio.QueueFull:
+                                pass
+                    first_run = False
+            except Exception as exc:
+                print(f"[GISTDA poll] error: {exc}")
+            await asyncio.sleep(GISTDA_POLL_SECONDS)
+
+
+async def _ensure_poll_task():
+    global _GISTDA_TASK
+    if _GISTDA_TASK is None or _GISTDA_TASK.done():
+        _GISTDA_TASK = asyncio.create_task(_gistda_poll_loop())
+
+
+@app.get("/api/fires/stream")
+async def fires_stream(request: Request):
+    """SSE endpoint: pushes new GISTDA fires as they are detected."""
+    await _ensure_poll_task()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=64)
+    _GISTDA_SUBSCRIBERS.append(queue)
+
+    async def event_gen():
+        try:
+            # Send a hello so the client knows the stream is alive
+            yield f": connected · poll every {GISTDA_POLL_SECONDS}s\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    rec = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"event: fire\ndata: {json.dumps(rec, default=str)}\n\n"
+                except asyncio.TimeoutError:
+                    # Heartbeat so proxies don't close the connection
+                    yield ": heartbeat\n\n"
+        finally:
+            try:
+                _GISTDA_SUBSCRIBERS.remove(queue)
+            except ValueError:
+                pass
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # disable nginx buffering
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/api/fires/latest")
+async def fires_latest():
+    """Snapshot of the last GISTDA poll. Useful for initial page load."""
+    await _ensure_poll_task()
+    async with _GISTDA_LOCK:
+        snapshot = list(_GISTDA_LATEST)
+    return {"count": len(snapshot), "features": snapshot, "poll_interval_s": GISTDA_POLL_SECONDS}
 
 
 # =====================================

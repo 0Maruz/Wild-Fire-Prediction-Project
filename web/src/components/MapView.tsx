@@ -85,7 +85,17 @@ export default function MapView(props: MapViewProps) {
       attributeFilter: ["data-theme"],
     });
 
+    // Listen for "firewatch:flyto" events dispatched by AlertToasts so
+    // clicking an alert pans the map to that hotspot.
+    const onFlyTo = (e: Event) => {
+      const detail = (e as CustomEvent<{ lat: number; lon: number }>).detail;
+      if (!detail || !mapRef.current) return;
+      mapRef.current.flyTo([detail.lat, detail.lon], 11, { duration: 1.2 });
+    };
+    window.addEventListener("firewatch:flyto", onFlyTo);
+
     return () => {
+      window.removeEventListener("firewatch:flyto", onFlyTo);
       observer.disconnect();
       map.remove();
       mapRef.current = null;

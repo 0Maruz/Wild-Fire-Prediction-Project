@@ -611,6 +611,12 @@ def append_geojson(observed: pd.DataFrame, predicted: pd.DataFrame, base_date, t
                 "lat": float(r["lat_grid"]),
                 "lon": float(r["lon_grid"]),
                 "fire_count": int(r["fire_count"]),
+                # Province annotation — frontend Thailand-only filter on the
+                # Live Fires page needs this. Predicted features already get
+                # it via build_predicted; observed was missing it.
+                "province": find_province(
+                    [float(r["lat_grid"])], [float(r["lon_grid"])]
+                )[0] or None,
             },
         })
 

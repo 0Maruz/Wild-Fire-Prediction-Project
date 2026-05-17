@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchGeoJson } from "./api";
 import AlertSettings from "./components/AlertSettings";
+import AlertToasts from "./components/AlertToasts";
 import InfoModal from "./components/InfoModal";
+import LiveFiresPage from "./components/LiveFiresPage";
 import LiveStatusBadge from "./components/LiveStatusBadge";
 import MapView from "./components/MapView";
 import NavTabs from "./components/NavTabs";
@@ -9,8 +11,10 @@ import NotifyPage from "./components/NotifyPage";
 import ReportsPage from "./components/ReportsPage";
 import Sidebar from "./components/Sidebar";
 import ThemeToggle from "./components/ThemeToggle";
+import { useFireAlerts, useFireSseStream } from "./utils/fireAlerts";
 import { useHashRoute } from "./utils/hashRoute";
 import type {
+  AlertPageRoute,
   DaySelection,
   DisplayOptions,
   FireGeoJson,
@@ -23,7 +27,10 @@ import { fetchLiveFires, LIVE_REFRESH_MS } from "./utils/gistda";
 
 const DEFAULT_OPTIONS: DisplayOptions = {
   showObserved: false,
-  showLiveFires: false,
+  // ON by default so real-time fire alerts (useFireAlerts) work out of
+  // the box — operator opens the dashboard and starts getting alerts
+  // within minutes of new GISTDA detections.
+  showLiveFires: true,
   // showPredicted + showCellPins are always-on now (Sidebar doesn't surface
   // toggles for them). Keep heatRadius hard-coded at 33 to match the new
   // frontend default.
@@ -64,6 +71,22 @@ export default function App() {
   // Close mobile drawer whenever the route changes
   useEffect(() => { setSidebarOpen(false); }, [route]);
 
+  // ── Real-time fire alerts ──
+  // MUST be called before any early-return below — React's Rules of Hooks
+  // require hooks to run in the same order every render. Putting this after
+  // `if (!geojson) return …` made the first render skip the hook entirely
+  // and crashed the page with a "Rendered more hooks than during the
+  // previous render" white-screen on data load.
+  const fireAlerts = useFireAlerts(liveFires);
+
+  // ── Server-Sent Events stream from FastAPI ──
+  // Backend polls GISTDA every 60s and pushes new fires; we react below
+  // (after refreshLiveFires is declared) by triggering an immediate refresh
+  // so the alert toast fires within seconds instead of waiting 5 min for
+  // the next browser-side poll cycle.
+  const sse = useFireSseStream();
+  const lastSseFireRef = useRef<number>(0);
+
   const refreshLiveFires = useCallback(async () => {
     // Abort any in-flight fetch so a quick toggle on/off doesn't pile up requests.
     liveFireAbortRef.current?.abort();
@@ -86,6 +109,16 @@ export default function App() {
       setLiveFireMeta((m) => ({ ...m, status: "error", count: 0, error: msg }));
     }
   }, []);
+
+  // SSE → immediate refresh: when the backend pushes a new fire event,
+  // re-fetch GISTDA so useFireAlerts diffs the new payload + toasts fire
+  // within ~1-2 seconds of detection (vs 5 min polling worst case).
+  useEffect(() => {
+    if (sse.lastFireAt && sse.lastFireAt !== lastSseFireRef.current) {
+      lastSseFireRef.current = sse.lastFireAt;
+      refreshLiveFires();
+    }
+  }, [sse.lastFireAt, refreshLiveFires]);
 
   // Toggle drives fetch + auto-refresh timer lifecycle.
   useEffect(() => {
@@ -264,7 +297,49 @@ export default function App() {
     (f) => f.properties.urgency_level === "CRITICAL"
   ).length;
 
+  // Toast JSX — uses already-computed fireAlerts state. Not a hook, just JSX.
+  const fireToasts = (
+    <AlertToasts
+      alerts={fireAlerts.activeAlerts}
+      onDismiss={fireAlerts.dismissAlert}
+      onDismissAll={fireAlerts.dismissAll}
+      onFlyTo={(lat, lon) => {
+        if (route !== "dashboard") navigate("dashboard");
+        window.dispatchEvent(new CustomEvent("firewatch:flyto", { detail: { lat, lon } }));
+      }}
+    />
+  );
+
   // ── Render route-specific content ──
+  if (route === "live") {
+    return (
+      <>
+        <TopBar
+          route={route}
+          onNavigate={navigate}
+          criticalCount={criticalCount}
+          showSidebarToggle={false}
+        />
+        <LiveFiresPage
+          liveFires={liveFires}
+          observed={derived.observed}
+          liveFireMeta={liveFireMeta}
+          onRefresh={refreshLiveFires}
+          onNavigateToMap={(lat, lon) => {
+            navigate("dashboard");
+            // Defer to next tick so MapView mounts before flyTo fires
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent("firewatch:flyto", { detail: { lat, lon } })
+              );
+            }, 50);
+          }}
+        />
+        {fireToasts}
+      </>
+    );
+  }
+
   if (route === "notify") {
     return (
       <>
@@ -275,6 +350,7 @@ export default function App() {
           showSidebarToggle={false}
         />
         <NotifyPage predictedAll={derived.predictedAll} />
+        {fireToasts}
       </>
     );
   }
@@ -292,6 +368,7 @@ export default function App() {
           metrics={meta.metrics ?? null}
           predictedAll={derived.predictedAll}
         />
+        {fireToasts}
       </>
     );
   }
@@ -372,6 +449,8 @@ export default function App() {
         predicted={derived.snapshotPredicted}
         metrics={meta.metrics ?? null}
       />
+
+      {fireToasts}
     </>
   );
 }
@@ -380,8 +459,8 @@ function TopBar({
   route, onNavigate, criticalCount,
   showSidebarToggle = false, sidebarOpen = false, onToggleSidebar,
 }: {
-  route: "dashboard" | "notify" | "reports";
-  onNavigate: (r: "dashboard" | "notify" | "reports") => void;
+  route: AlertPageRoute;
+  onNavigate: (r: AlertPageRoute) => void;
   criticalCount: number;
   showSidebarToggle?: boolean;
   sidebarOpen?: boolean;

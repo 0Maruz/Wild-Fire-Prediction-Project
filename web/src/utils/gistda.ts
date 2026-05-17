@@ -43,4 +43,8 @@ export async function fetchLiveFires(signal?: AbortSignal): Promise<GistdaFeatur
 }
 
 export const LIVE_FIRE_COLOR = "#06b6d4"; // cyan — distinct from urgency + observed
-export const LIVE_REFRESH_MS = 30 * 60 * 1000; // 30 min auto-refresh while toggle is on
+// Polls every 5 min so real-time fire alerts (useFireAlerts) fire at a
+// useful cadence. GISTDA's public ArcGIS REST endpoint accepts this rate
+// from a single browser; multiple concurrent operators should consider
+// moving the poll to a backend SSE multiplex if throttling becomes an issue.
+export const LIVE_REFRESH_MS = 5 * 60 * 1000; // 5 min auto-refresh while toggle is on
