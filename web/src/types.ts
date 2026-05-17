@@ -235,7 +235,7 @@ export interface NotifyLogRecord {
   status: "queued" | "sent" | "failed";
 }
 
-export type AlertPageRoute = "dashboard" | "notify" | "reports";
+export type AlertPageRoute = "dashboard" | "notify" | "live" | "reports";
 
 export type DaySelection = "all" | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7";
 

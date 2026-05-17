@@ -1,6 +1,24 @@
 import { useMemo } from "react";
 import type { FireFeature, ValidationMetrics } from "../types";
+import { downloadCsv, downloadMultiSectionCsv } from "../utils/csvExport";
 import StatisticsSection from "./StatisticsSection";
+
+function SmallExportBtn({ filename, getRows }: {
+  filename: string;
+  getRows: () => (string | number | null | undefined)[][];
+}) {
+  return (
+    <button
+      type="button"
+      className="action-btn"
+      onClick={() => downloadCsv(filename, getRows())}
+      style={{ padding: "4px 10px", fontSize: 11 }}
+      title={`Export ${filename}`}
+    >
+      📥 CSV
+    </button>
+  );
+}
 
 interface Props {
   metrics: ValidationMetrics | null;
@@ -84,13 +102,195 @@ export default function ReportsPage({ metrics, predictedAll }: Props) {
 
   const sciStats = metrics?.scientific_stats;
 
+  // ── Build the section list (used by both combined + separate downloads) ──
+  // Defined as a function so it's only evaluated when the user clicks an
+  // export button (and so monthly / featureImportance / provinces are fresh).
+  const buildSections = (): { name: string; rows: (string | number | null | undefined)[][] }[] => {
+    const sections: { name: string; rows: (string | number | null | undefined)[][] }[] = [];
+
+    sections.push({
+      name: "Report Header",
+      rows: [
+        ["field", "value"],
+        ["dashboard", "FireWatch Thailand"],
+        ["generated_at", new Date().toISOString()],
+        ["url", typeof window !== "undefined" ? window.location.href : ""],
+        ["note", "All data derived from real sources: NASA FIRMS VIIRS NRT, ECMWF ERA5, Hansen GFC. No synthetic values."],
+      ],
+    });
+
+    if (sciStats) {
+      sections.push({
+        name: "Dataset Split",
+        rows: [
+          ["split", "n_rows", "positives", "positive_rate", "date_start", "date_end"],
+          ["train", sciStats.samples.train.n, sciStats.samples.train.positives, sciStats.samples.train.positive_rate, ...sciStats.samples.train.date_range],
+          ["val",   sciStats.samples.val.n,   sciStats.samples.val.positives,   sciStats.samples.val.positive_rate,   ...sciStats.samples.val.date_range],
+          ["test",  sciStats.samples.test.n,  sciStats.samples.test.positives,  sciStats.samples.test.positive_rate,  ...sciStats.samples.test.date_range],
+          ["total_densified", sciStats.samples.total_densified, "", "", "", ""],
+        ],
+      });
+      sections.push({
+        name: "Bootstrap 95% Confidence Intervals (n=1000)",
+        rows: [
+          ["metric", "point", "ci_lower", "ci_upper", "std", "n_boot", "confidence"],
+          ...(Object.entries(sciStats.ci_95) as [string, typeof sciStats.ci_95.roc_auc][]).map(
+            ([k, v]) => [k, v.point, v.lower, v.upper, v.std, v.n_boot, v.confidence]
+          ),
+        ],
+      });
+      sections.push({
+        name: "Confusion Matrix (@deployment threshold)",
+        rows: [
+          ["", "predicted_no_fire", "predicted_fire"],
+          ["actual_no_fire", sciStats.confusion_matrix.tn, sciStats.confusion_matrix.fp],
+          ["actual_fire", sciStats.confusion_matrix.fn, sciStats.confusion_matrix.tp],
+        ],
+      });
+      sections.push({
+        name: "Classification Statistics",
+        rows: [
+          ["metric", "value"],
+          ...Object.entries(sciStats.classification_stats).map(([k, v]) => [k, v]),
+        ],
+      });
+      sections.push({
+        name: "ROC Curve (FPR vs TPR)",
+        rows: [
+          ["fpr", "tpr", "threshold"],
+          ...sciStats.roc_curve.map((p) => [p.x, p.y, p.t ?? ""]),
+        ],
+      });
+      sections.push({
+        name: "Precision-Recall Curve",
+        rows: [
+          ["recall", "precision", "threshold"],
+          ...sciStats.pr_curve.map((p) => [p.x, p.y, p.t ?? ""]),
+        ],
+      });
+    }
+    if (monthly.length) {
+      sections.push({
+        name: "Rolling Monthly AUC (model stability)",
+        rows: [
+          ["month", "auc", "positive_rate", "n_rows"],
+          ...monthly.map((m) => [m.month, m.auc, m.positive_rate, m.n]),
+        ],
+      });
+    }
+    if (featureImportance.length) {
+      sections.push({
+        name: "Feature Importance (top 20)",
+        rows: [
+          ["rank", "feature", "importance"],
+          ...featureImportance.map((f, i) => [i + 1, f.feature, f.importance]),
+        ],
+      });
+    }
+    if (provinces.length) {
+      sections.push({
+        name: "Provincial Breakdown (current snapshot)",
+        rows: [
+          ["province", "critical", "high", "medium", "low", "total"],
+          ...provinces.map((p) => [p.prov, p.CRITICAL, p.HIGH, p.MEDIUM, p.LOW, p.total]),
+        ],
+      });
+    }
+    return sections;
+  };
+
+  // ──── Combined: single CSV with all sections + section headers ────
+  const exportCombined = () => {
+    const sections = buildSections();
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadMultiSectionCsv(`firewatch_full_report_${stamp}.csv`, sections);
+  };
+
+  // ──── Separate: one CSV per section (current behaviour) ────
+  const exportAll = () => {
+    if (sciStats) {
+      downloadCsv("dataset_split.csv", [
+        ["split", "n_rows", "positives", "positive_rate", "date_start", "date_end"],
+        ["train", sciStats.samples.train.n, sciStats.samples.train.positives, sciStats.samples.train.positive_rate, ...sciStats.samples.train.date_range],
+        ["val",   sciStats.samples.val.n,   sciStats.samples.val.positives,   sciStats.samples.val.positive_rate,   ...sciStats.samples.val.date_range],
+        ["test",  sciStats.samples.test.n,  sciStats.samples.test.positives,  sciStats.samples.test.positive_rate,  ...sciStats.samples.test.date_range],
+      ]);
+      downloadCsv("bootstrap_ci_95.csv", [
+        ["metric", "point", "ci_lower", "ci_upper", "std", "n_boot"],
+        ...(Object.entries(sciStats.ci_95) as [string, typeof sciStats.ci_95.roc_auc][]).map(
+          ([k, v]) => [k, v.point, v.lower, v.upper, v.std, v.n_boot]
+        ),
+      ]);
+      downloadCsv("confusion_matrix.csv", [
+        ["", "predicted_no_fire", "predicted_fire"],
+        ["actual_no_fire", sciStats.confusion_matrix.tn, sciStats.confusion_matrix.fp],
+        ["actual_fire", sciStats.confusion_matrix.fn, sciStats.confusion_matrix.tp],
+      ]);
+      downloadCsv("classification_stats.csv", [
+        ["metric", "value"],
+        ...Object.entries(sciStats.classification_stats).map(([k, v]) => [k, v]),
+      ]);
+      downloadCsv("roc_curve.csv", [
+        ["fpr", "tpr", "threshold"],
+        ...sciStats.roc_curve.map((p) => [p.x, p.y, p.t ?? ""]),
+      ]);
+      downloadCsv("pr_curve.csv", [
+        ["recall", "precision", "threshold"],
+        ...sciStats.pr_curve.map((p) => [p.x, p.y, p.t ?? ""]),
+      ]);
+    }
+    if (monthly.length) {
+      downloadCsv("rolling_monthly_auc.csv", [
+        ["month", "auc", "positive_rate", "n_rows"],
+        ...monthly.map((m) => [m.month, m.auc, m.positive_rate, m.n]),
+      ]);
+    }
+    if (featureImportance.length) {
+      downloadCsv("feature_importance.csv", [
+        ["rank", "feature", "importance"],
+        ...featureImportance.map((f, i) => [i + 1, f.feature, f.importance]),
+      ]);
+    }
+    if (provinces.length) {
+      downloadCsv("provinces_breakdown.csv", [
+        ["province", "critical", "high", "medium", "low", "total"],
+        ...provinces.map((p) => [p.prov, p.CRITICAL, p.HIGH, p.MEDIUM, p.LOW, p.total]),
+      ]);
+    }
+  };
+
   return (
     <div className="reports-page">
-      <header className="notify-page-header">
-        <h1>📊 รายงาน · Scientific Analysis</h1>
-        <p className="notify-page-subtitle">
-          Held-out test set performance + bootstrap confidence intervals + statistical tests
-        </p>
+      <header className="notify-page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <h1>📊 รายงาน · Scientific Analysis</h1>
+          <p className="notify-page-subtitle">
+            Held-out test set performance + bootstrap confidence intervals + statistical tests
+          </p>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="action-btn primary"
+              onClick={exportCombined}
+              title="ดาวน์โหลดสถิติทุก section รวมเป็นไฟล์เดียว (ใช้ได้กับ Excel/Google Sheets)"
+            >
+              📄 ไฟล์เดียวรวมทุกสถิติ
+            </button>
+            <button
+              type="button"
+              className="action-btn"
+              onClick={exportAll}
+              title="ดาวน์โหลด 9 ไฟล์แยก (1 ไฟล์ต่อ section) — เหมาะกับ import เข้า analysis tools แยกตัว"
+            >
+              📂 แยก 9 ไฟล์
+            </button>
+          </div>
+          <span style={{ fontSize: 10, color: "var(--text-3)" }}>
+            หรือกดปุ่ม 📥 CSV ในแต่ละ section ด้านล่าง
+          </span>
+        </div>
       </header>
 
       {/* Scientific stats first — the main "proof" section */}
@@ -106,11 +306,22 @@ export default function ReportsPage({ metrics, predictedAll }: Props) {
 
       {/* Section 1: Rolling AUC */}
       <section className="report-section">
-        <div className="report-section-head">
-          <h2>📈 Model stability — Rolling AUC ตลอด {monthly.length} เดือน</h2>
-          <p className="report-section-hint">
-            แต่ละจุด = AUC ของโมเดลใน 1 เดือน · เส้นแดงทแยง = baseline 0.5 (สุ่ม)
-          </p>
+        <div className="report-section-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <h2>📈 Model stability — Rolling AUC ตลอด {monthly.length} เดือน</h2>
+            <p className="report-section-hint">
+              แต่ละจุด = AUC ของโมเดลใน 1 เดือน · เส้นแดงทแยง = baseline 0.5 (สุ่ม)
+            </p>
+          </div>
+          {monthly.length > 0 && (
+            <SmallExportBtn
+              filename="rolling_monthly_auc.csv"
+              getRows={() => [
+                ["month", "auc", "positive_rate", "n_rows"],
+                ...monthly.map((m) => [m.month, m.auc, m.positive_rate, m.n]),
+              ]}
+            />
+          )}
         </div>
         {monthly.length > 0 ? (
           <RollingAucChart data={monthly} />
@@ -129,11 +340,22 @@ export default function ReportsPage({ metrics, predictedAll }: Props) {
 
       {/* Section 2: Feature importance */}
       <section className="report-section">
-        <div className="report-section-head">
-          <h2>🌿 Feature importance — top {Math.min(featureImportance.length, 20)}</h2>
-          <p className="report-section-hint">
-            Features ที่โมเดล LightGBM ใช้บ่อยที่สุดในการ split — บอกว่าตัวไหนสำคัญ
-          </p>
+        <div className="report-section-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <h2>🌿 Feature importance — top {Math.min(featureImportance.length, 20)}</h2>
+            <p className="report-section-hint">
+              Features ที่โมเดล LightGBM ใช้บ่อยที่สุดในการ split — บอกว่าตัวไหนสำคัญ
+            </p>
+          </div>
+          {featureImportance.length > 0 && (
+            <SmallExportBtn
+              filename="feature_importance.csv"
+              getRows={() => [
+                ["rank", "feature", "importance"],
+                ...featureImportance.map((f, i) => [i + 1, f.feature, f.importance]),
+              ]}
+            />
+          )}
         </div>
         {featureImportance.length > 0 ? (
           <FeatureImportanceChart data={featureImportance} />
@@ -144,11 +366,22 @@ export default function ReportsPage({ metrics, predictedAll }: Props) {
 
       {/* Section 3: Provincial breakdown */}
       <section className="report-section">
-        <div className="report-section-head">
-          <h2>🇹🇭 Cells ต่อจังหวัด — top 15 (snapshot ล่าสุด)</h2>
-          <p className="report-section-hint">
-            จำนวน cells ที่ถูก flag ในแต่ละจังหวัด · stacked โดย urgency
-          </p>
+        <div className="report-section-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <h2>🇹🇭 Cells ต่อจังหวัด — top 15 (snapshot ล่าสุด)</h2>
+            <p className="report-section-hint">
+              จำนวน cells ที่ถูก flag ในแต่ละจังหวัด · stacked โดย urgency
+            </p>
+          </div>
+          {provinces.length > 0 && (
+            <SmallExportBtn
+              filename="provinces_breakdown.csv"
+              getRows={() => [
+                ["province", "critical", "high", "medium", "low", "total"],
+                ...provinces.map((p) => [p.prov, p.CRITICAL, p.HIGH, p.MEDIUM, p.LOW, p.total]),
+              ]}
+            />
+          )}
         </div>
         {provinces.length > 0 ? (
           <ProvinceChart data={provinces} />

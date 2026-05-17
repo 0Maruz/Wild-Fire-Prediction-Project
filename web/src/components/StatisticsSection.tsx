@@ -1,7 +1,41 @@
 import type { ScientificStats, BootstrapCI } from "../types";
+import { downloadCsv } from "../utils/csvExport";
 
 interface Props {
   stats: ScientificStats;
+}
+
+// Small reusable "Export CSV" button placed in each section header.
+// Keeps every section self-contained — clicking exports only that table.
+function ExportBtn({ filename, getRows }: { filename: string; getRows: () => (string | number | null | undefined)[][] }) {
+  return (
+    <button
+      type="button"
+      className="action-btn"
+      onClick={() => downloadCsv(filename, getRows())}
+      style={{ padding: "4px 10px", fontSize: 11 }}
+      title={`Export ${filename}`}
+    >
+      📥 CSV
+    </button>
+  );
+}
+
+function SectionHead({ title, hint, exportFilename, exportRows }: {
+  title: string;
+  hint?: string;
+  exportFilename: string;
+  exportRows: () => (string | number | null | undefined)[][];
+}) {
+  return (
+    <div className="report-section-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+      <div style={{ flex: 1 }}>
+        <h2>{title}</h2>
+        {hint && <p className="report-section-hint">{hint}</p>}
+      </div>
+      <ExportBtn filename={exportFilename} getRows={exportRows} />
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -39,12 +73,19 @@ function DatasetSplitTable({ samples }: { samples: ScientificStats["samples"] })
   ];
   return (
     <section className="report-section">
-      <div className="report-section-head">
-        <h2>📋 Dataset breakdown (chronological 60/20/20 split)</h2>
-        <p className="report-section-hint">
-          จำนวนข้อมูล train/val/test · ไม่มีการ shuffle (เรียงตามวันที่)
-        </p>
-      </div>
+      <SectionHead
+        title="📋 Dataset breakdown (chronological 60/20/20 split)"
+        hint="จำนวนข้อมูล train/val/test · ไม่มีการ shuffle (เรียงตามวันที่)"
+        exportFilename="dataset_split.csv"
+        exportRows={() => [
+          ["split", "n_rows", "positives", "positive_rate", "date_start", "date_end"],
+          ...rows.map((r) => [
+            r.label, r.data.n, r.data.positives, r.data.positive_rate,
+            r.data.date_range[0], r.data.date_range[1],
+          ]),
+          ["total_densified", samples.total_densified, "", "", "", ""],
+        ]}
+      />
       <table className="stats-table">
         <thead>
           <tr>
@@ -90,12 +131,17 @@ function BootstrapCITable({ ci }: { ci: ScientificStats["ci_95"] }) {
   ];
   return (
     <section className="report-section">
-      <div className="report-section-head">
-        <h2>🎯 95% Confidence Intervals (bootstrap, n=1000)</h2>
-        <p className="report-section-hint">
-          ช่วงความเชื่อมั่น 95% ของ metric แต่ละตัว · resample ข้อมูล test แบบสุ่ม 1000 ครั้ง
-        </p>
-      </div>
+      <SectionHead
+        title="🎯 95% Confidence Intervals (bootstrap, n=1000)"
+        hint="ช่วงความเชื่อมั่น 95% ของ metric แต่ละตัว · resample ข้อมูล test แบบสุ่ม 1000 ครั้ง"
+        exportFilename="bootstrap_ci_95.csv"
+        exportRows={() => [
+          ["metric", "metric_en", "point", "ci_lower", "ci_upper", "std", "n_boot", "confidence"],
+          ...rows.map((r) => [
+            r.label, r.labelEn, r.ci.point, r.ci.lower, r.ci.upper, r.ci.std, r.ci.n_boot, r.ci.confidence,
+          ]),
+        ]}
+      />
       <table className="stats-table">
         <thead>
           <tr>
@@ -153,12 +199,26 @@ function ConfusionMatrixCard({
   };
   return (
     <section className="report-section">
-      <div className="report-section-head">
-        <h2>🔢 Confusion Matrix (@deployment threshold)</h2>
-        <p className="report-section-hint">
-          จับคู่ predicted vs actual บน test set · เซลล์เข้ม = นับเยอะ
-        </p>
-      </div>
+      <SectionHead
+        title="🔢 Confusion Matrix (@deployment threshold)"
+        hint="จับคู่ predicted vs actual บน test set · เซลล์เข้ม = นับเยอะ"
+        exportFilename="confusion_matrix.csv"
+        exportRows={() => [
+          ["", "predicted_no_fire", "predicted_fire"],
+          ["actual_no_fire", cm.tn, cm.fp],
+          ["actual_fire", cm.fn, cm.tp],
+          [],
+          ["metric", "value"],
+          ["true_positive", cm.tp],
+          ["true_negative", cm.tn],
+          ["false_positive", cm.fp],
+          ["false_negative", cm.fn],
+          ["sensitivity_recall", cs.sensitivity],
+          ["specificity", cs.specificity],
+          ["ppv_precision", cs.ppv],
+          ["npv", cs.npv],
+        ]}
+      />
       <div className="cm-wrap">
         <div className="cm-side-label" aria-hidden="true">Actual</div>
         <div className="cm-grid">
@@ -201,12 +261,26 @@ function ClassificationStatsCard({ cs }: { cs: ScientificStats["classification_s
   ];
   return (
     <section className="report-section">
-      <div className="report-section-head">
-        <h2>📐 Additional Classification Statistics</h2>
-        <p className="report-section-hint">
-          เมตริกขั้นสูงสำหรับ binary classification — รวม class-imbalance-robust scores
-        </p>
-      </div>
+      <SectionHead
+        title="📐 Additional Classification Statistics"
+        hint="เมตริกขั้นสูงสำหรับ binary classification — รวม class-imbalance-robust scores"
+        exportFilename="classification_stats.csv"
+        exportRows={() => [
+          ["metric", "value", "interpretation"],
+          ["cohen_kappa", cs.cohen_kappa, ">0.4 ปานกลาง, >0.6 ดี"],
+          ["matthews_corr_coef", cs.matthews_corr_coef, ">0.3 ดี"],
+          ["brier_score", cs.brier_score, "ยิ่งต่ำยิ่งดี"],
+          ["brier_skill_score", cs.brier_skill_score, ">0 ดีกว่า prior"],
+          ["log_loss", cs.log_loss, "compare with -log(prior)"],
+          ["sensitivity_recall", cs.sensitivity, "operator: catch fires"],
+          ["specificity", cs.specificity, "operator: avoid false alarm"],
+          ["ppv_precision", cs.ppv, "operator: alert quality"],
+          ["npv", cs.npv, "operator: no-alert quality"],
+          ["false_positive_rate", cs.false_positive_rate, "operator burden"],
+          ["false_negative_rate", cs.false_negative_rate, "missed fires"],
+          ["baseline_class_prior", cs.baseline_class_prior, "% positives ใน test"],
+        ]}
+      />
       <div className="cs-grid">
         {items.map((it) => (
           <div key={it.label} className={`cs-item cs-${it.status}`}>
@@ -241,11 +315,29 @@ function CurvesRow({
 }) {
   return (
     <section className="report-section">
-      <div className="report-section-head">
-        <h2>📈 ROC + Precision-Recall curves</h2>
-        <p className="report-section-hint">
-          กราฟ classic ของ binary classifier · hover ดูค่า threshold
-        </p>
+      <div className="report-section-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <h2>📈 ROC + Precision-Recall curves</h2>
+          <p className="report-section-hint">
+            กราฟ classic ของ binary classifier · hover ดูค่า threshold
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <ExportBtn
+            filename="roc_curve.csv"
+            getRows={() => [
+              ["fpr", "tpr", "threshold"],
+              ...roc.map((p) => [p.x, p.y, p.t ?? ""]),
+            ]}
+          />
+          <ExportBtn
+            filename="pr_curve.csv"
+            getRows={() => [
+              ["recall", "precision", "threshold"],
+              ...pr.map((p) => [p.x, p.y, p.t ?? ""]),
+            ]}
+          />
+        </div>
       </div>
       <div className="curves-grid">
         <div className="curve-card">

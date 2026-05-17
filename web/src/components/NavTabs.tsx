@@ -18,6 +18,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { route: "dashboard", icon: "🗺", label: "แผนที่", labelEn: "Map" },
+  { route: "live",      icon: "🔥", label: "ไฟสด", labelEn: "Live Fires" },
   { route: "notify",    icon: "🔔", label: "แจ้งเตือน", labelEn: "Notify" },
   { route: "reports",   icon: "📊", label: "รายงาน", labelEn: "Reports" },
 ];
