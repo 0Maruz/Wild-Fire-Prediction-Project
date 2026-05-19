@@ -323,7 +323,118 @@
       "test_positive_rate": 0.1345,
       "uplift_at_top_5pct": 1.375,
       "uplift_at_top_10pct": 2.279,
-      "uplift_at_top_20pct": 2.552
+      "uplift_at_top_20pct": 2.552,
+      "rolling_by_month": [
+        {
+          "month": "2025-01",
+          "auc": 0.8868,
+          "positive_rate": 0.1679,
+          "n": 9527
+        },
+        {
+          "month": "2025-02",
+          "auc": 0.9211,
+          "positive_rate": 0.1357,
+          "n": 266756
+        },
+        {
+          "month": "2025-03",
+          "auc": 0.9276,
+          "positive_rate": 0.1758,
+          "n": 295337
+        },
+        {
+          "month": "2025-04",
+          "auc": 0.9051,
+          "positive_rate": 0.1112,
+          "n": 285810
+        },
+        {
+          "month": "2025-05",
+          "auc": 0.9524,
+          "positive_rate": 0.0261,
+          "n": 295337
+        },
+        {
+          "month": "2025-06",
+          "auc": 0.9789,
+          "positive_rate": 0.0051,
+          "n": 285810
+        },
+        {
+          "month": "2025-07",
+          "auc": 0.9754,
+          "positive_rate": 0.0049,
+          "n": 295337
+        },
+        {
+          "month": "2025-08",
+          "auc": 0.9837,
+          "positive_rate": 0.0127,
+          "n": 295337
+        },
+        {
+          "month": "2025-09",
+          "auc": 0.9817,
+          "positive_rate": 0.0041,
+          "n": 285810
+        },
+        {
+          "month": "2025-10",
+          "auc": 0.9826,
+          "positive_rate": 0.0071,
+          "n": 295337
+        },
+        {
+          "month": "2025-11",
+          "auc": 0.979,
+          "positive_rate": 0.0227,
+          "n": 285810
+        },
+        {
+          "month": "2025-12",
+          "auc": 0.93,
+          "positive_rate": 0.0683,
+          "n": 295337
+        },
+        {
+          "month": "2026-01",
+          "auc": 0.8262,
+          "positive_rate": 0.13,
+          "n": 295337
+        },
+        {
+          "month": "2026-02",
+          "auc": 0.9302,
+          "positive_rate": 0.0071,
+          "n": 266756
+        },
+        {
+          "month": "2026-03",
+          "auc": 0.7965,
+          "positive_rate": 0.0344,
+          "n": 295337
+        },
+        {
+          "month": "2026-04",
+          "auc": 0.8013,
+          "positive_rate": 0.029,
+          "n": 285810
+        },
+        {
+          "month": "2026-05",
+          "auc": 0.8047,
+          "positive_rate": 0.075,
+          "n": 181013
+        }
+      ],
+      "stability_months": 17,
+      "stability_valid_months": 17,
+      "stability_auc_mean": 0.9155,
+      "stability_auc_std": 0.0667,
+      "stability_auc_min": 0.7965,
+      "stability_auc_max": 0.9837,
+      "calibration_method": "platt_sigmoid"
     },
     "test_metrics_binary": {
       "roc_auc": 0.8285,

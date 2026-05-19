@@ -1247,6 +1247,9 @@ def main(
         "ece": round(test_ece, 4),
         "ece_val_before_calibration": round(val_ece_before, 4),
         "ece_val_after_calibration": round(val_ece_after, 4),
+        # Flag persisted so the dashboard's "Calibrated" badge lights up
+        # (frontend treats any truthy calibration_method as calibrated).
+        "calibration_method": "platt_sigmoid",
         "reliability_bins": reliability,
         **pak_metrics,
     }

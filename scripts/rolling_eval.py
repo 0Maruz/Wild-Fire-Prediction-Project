@@ -74,6 +74,15 @@ def _eval_window(y: np.ndarray, p: np.ndarray, thr: float) -> Dict[str, float]:
 def main() -> None:
     t0 = time.time()
     print("[1/3] Loading model + scanning parquet...")
+    # train.py defines _EnsembleRegressor; when train.py runs as __main__
+    # joblib pickles it with __module__ = "__main__". Other entry points
+    # (this script, api.py, standalone risk_map.py) need the class
+    # aliased into their own __main__ before unpickling.
+    _main_mod = sys.modules.get("__main__")
+    if _main_mod is not None:
+        for _name in ("_EnsembleRegressor", "_prob_to_days_for_compat"):
+            if hasattr(train, _name) and not hasattr(_main_mod, _name):
+                setattr(_main_mod, _name, getattr(train, _name))
     model = joblib.load(MODEL_PATH)
     if not isinstance(model, train._EnsembleRegressor):
         raise SystemExit(f"Not _EnsembleRegressor: {type(model)}")
