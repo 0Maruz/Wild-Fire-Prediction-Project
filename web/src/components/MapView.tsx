@@ -426,3 +426,4 @@ function buildLiveFireLayer(map: L.Map, features: GistdaFeature[], gridM: number
   }
   return layer;
 }
+

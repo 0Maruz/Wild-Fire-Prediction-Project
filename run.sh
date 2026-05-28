@@ -246,4 +246,4 @@ cat <<EOF
 EOF
 
 # Foreground FastAPI — Ctrl+C tears down the HTTP server via the trap.
-(cd src && exec uvicorn api:app --host 0.0.0.0 --port "${API_PORT}")
+(cd src && exec python -m uvicorn api:app --host 0.0.0.0 --port "${API_PORT}")

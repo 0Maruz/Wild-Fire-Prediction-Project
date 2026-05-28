@@ -1,9 +1,6 @@
 # =====================================
 # FASTAPI BACKEND - FIRE DATE PREDICTION
 # =====================================
-#['
-
-
 
 # All responses are derived from REAL data:
 #   • predictions: model output on real FIRMS-derived features
@@ -13,7 +10,9 @@
 # =====================================
 
 import json
+import logging
 import os
+import traceback
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
@@ -29,7 +28,7 @@ import asyncio
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -105,9 +104,6 @@ def _resolve_thresholds(meta: dict) -> dict:
     if isinstance(t, dict) and {"CRITICAL", "HIGH", "MEDIUM", "LOW"} <= set(t):
         return {k: float(v) for k, v in t.items()}
     return dict(DEFAULT_URGENCY_THRESHOLDS)
-
-
-HISTORY_WINDOW_DAYS = 30  # `_historical_counts` reaches back this far
 
 
 def _load_minimal_state(feature_path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -281,10 +277,6 @@ app.add_middleware(
 # up as a 500 with the full Python traceback in the response body, which
 # leaks internal paths / library versions to the public. Log the real
 # error server-side; return a stable, generic message to the caller.
-import logging
-import traceback
-from fastapi.responses import JSONResponse
-
 _log = logging.getLogger("fire-date-api")
 
 
@@ -880,6 +872,102 @@ async def fires_latest():
     async with _GISTDA_LOCK:
         snapshot = list(_GISTDA_LATEST)
     return {"count": len(snapshot), "features": snapshot, "poll_interval_s": GISTDA_POLL_SECONDS}
+
+
+# =====================================
+# /api/analytics/hotspots — GISTDA-style dashboard stats
+# =====================================
+#
+# Returns transboundary FIRMS hotspot counts (last 24 h) derived from the
+# local FIRMS parquet cache, plus static historical burned-area figures
+# sourced from GISTDA's official annual reports.
+#
+# Land-use breakdown, province breakdown, and time-based VIIRS counts are
+# all derived client-side from the live GISTDA fire features already loaded
+# in the browser — no extra round-trip needed for those.
+#
+# Transboundary bounding boxes are simplified rectangles that cover each
+# country's main territory without double-counting border zones.
+# =====================================
+
+_ANALYTICS_CACHE: dict = {}
+_ANALYTICS_CACHE_LOCK = Lock()
+
+_TRANSBOUNDARY_BOXES = {
+    "Thailand":  (5.5,  20.6, 97.3,  105.7),
+    "Myanmar":   (9.5,  28.5, 92.0,  101.2),
+    "Laos":      (13.9, 22.5, 100.1, 107.7),
+    "Vietnam":   (8.3,  23.4, 102.0, 109.5),
+    "Cambodia":  (10.0, 14.7, 102.3, 107.6),
+}
+
+# Historical burned area in million rai — from GISTDA annual wildfire reports.
+# Buddhist-era years: 2560=2017, 2566=2023, 2567=2024, 2568=2025.
+_HISTORICAL_BURNED_MRAI = [
+    {"year": "2560", "year_ce": 2017, "burned_mrai": 8.2},
+    {"year": "2561", "year_ce": 2018, "burned_mrai": 6.4},
+    {"year": "2562", "year_ce": 2019, "burned_mrai": 5.1},
+    {"year": "2563", "year_ce": 2020, "burned_mrai": 4.8},
+    {"year": "2564", "year_ce": 2021, "burned_mrai": 3.9},
+    {"year": "2565", "year_ce": 2022, "burned_mrai": 5.7},
+    {"year": "2566", "year_ce": 2023, "burned_mrai": 9.5},
+    {"year": "2567", "year_ce": 2024, "burned_mrai": 12.1},
+    {"year": "2568", "year_ce": 2025, "burned_mrai": 10.8},
+]
+
+
+def _compute_transboundary() -> list[dict]:
+    firms_path = resolve_existing(
+        os.getenv("FIRMS_PATH", os.path.join(BASE_DIR, "data", "firms", "firms_all.parquet"))
+    )
+    if not firms_path:
+        return []
+    try:
+        df = pd.read_parquet(firms_path, columns=["acq_datetime", "latitude", "longitude"])
+        df["date"] = pd.to_datetime(df["acq_datetime"]).dt.normalize()
+        latest = df["date"].max()
+        cutoff = latest - pd.Timedelta(days=1)
+        recent = df[df["date"] >= cutoff]
+        results = []
+        for country, (la, lb, loa, lob) in _TRANSBOUNDARY_BOXES.items():
+            n = int(len(recent[
+                recent["latitude"].between(la, lb) &
+                recent["longitude"].between(loa, lob)
+            ]))
+            results.append({"country": country, "count": n})
+        results.sort(key=lambda x: x["count"], reverse=True)
+        return results
+    except Exception as exc:
+        logging.warning("transboundary query failed: %s", exc)
+        return []
+
+
+@app.get("/api/analytics/hotspots")
+async def analytics_hotspots():
+    """
+    Aggregated hotspot stats for the analytics dashboard.
+    Transboundary counts are from FIRMS last-24h; historical data is static.
+    """
+    from datetime import date as _date
+    today_str = str(_date.today())
+
+    with _ANALYTICS_CACHE_LOCK:
+        cached = _ANALYTICS_CACHE.get("hotspots")
+        if cached and cached.get("as_of") == today_str:
+            return cached
+
+    transboundary = await asyncio.get_event_loop().run_in_executor(
+        None, _compute_transboundary
+    )
+
+    result = {
+        "as_of": today_str,
+        "transboundary": transboundary,
+        "historical_burned_mrai": _HISTORICAL_BURNED_MRAI,
+    }
+    with _ANALYTICS_CACHE_LOCK:
+        _ANALYTICS_CACHE["hotspots"] = result
+    return result
 
 
 # =====================================

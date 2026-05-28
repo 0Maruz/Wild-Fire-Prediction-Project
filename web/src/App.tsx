@@ -3,6 +3,7 @@ import { fetchGeoJson } from "./api";
 import AlertSettings from "./components/AlertSettings";
 import AlertToasts from "./components/AlertToasts";
 import ComparePage from "./components/ComparePage";
+import HotspotAnalyticsPage from "./components/HotspotAnalyticsPage";
 import InfoModal from "./components/InfoModal";
 import LiveFiresPage from "./components/LiveFiresPage";
 import LiveStatusBadge from "./components/LiveStatusBadge";
@@ -224,14 +225,13 @@ function AppInner() {
     });
     const features = rawFeatures.filter((f) => {
       const prov = (f.properties.province ?? "").trim();
-      // Predicted cells: require province (drops S.Myanmar/N.Laos leaks).
-      // Observed FIRMS: also require province so the Compare-page "miss"
-      // count only counts in-Thailand fires (we only predict TH; foreign
-      // misses don't belong in the audit). Older snapshots without province
-      // on observed will get dropped — that's intentional.
-      if (f.properties.source === "predicted" || f.properties.source === "observed") {
-        return prov.length > 0;
-      }
+      // Predicted cells: require province annotation (drops S.Myanmar/N.Laos leaks
+      // that fall inside the BBOX but outside Thailand's polygon).
+      if (f.properties.source === "predicted") return prov.length > 0;
+      // Observed FIRMS: bbox is sufficient — real hotspot coordinates are already
+      // inside Thailand. Province annotation is present on newer snapshots
+      // (risk_map.py ≥2026-05-26) but absent on older ones. Dropping province-less
+      // observations would blank out the Compare page and Live Fires observed layer.
       return true;
     });
 
@@ -423,6 +423,25 @@ function AppInner() {
           showSidebarToggle={false}
         />
         <NotifyPage predictedAll={derived.predictedAll} />
+        {welcomeBanner}
+        {fireToasts}
+      </>
+    );
+  }
+
+  if (route === "analytics") {
+    return (
+      <>
+        <TopBar
+          route={route}
+          onNavigate={navigate}
+          criticalCount={criticalCount}
+          showSidebarToggle={false}
+        />
+        <HotspotAnalyticsPage
+          liveFires={liveFires}
+          liveCount={liveFireMeta.count}
+        />
         {welcomeBanner}
         {fireToasts}
       </>

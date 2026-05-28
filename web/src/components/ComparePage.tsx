@@ -146,15 +146,64 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
   // haversine distance + day window. This overrides the grid-cell-exact
   // validation_status from risk_map.py so the operator can dial radius /
   // day window live.
+  //
+  // Fallback: when observed data doesn't temporally cover this snapshot's
+  // prediction dates, use the stored validation_status that risk_map.py
+  // computed against the full historical FIRMS parquet.
+  //
+  // The simple `observedInWindow.length === 0` check is insufficient — the
+  // 9-day window can include today's observations even for a week-old
+  // snapshot (e.g. May 26 obs falls inside the May 18/22/23 windows).
+  // Those obs are 2-8 days from the predicted fire dates, so live matching
+  // produces 0 hits → all predictions show as false alarms. The coverage
+  // ratio check below detects this and switches to stored data instead.
   type Match = { feature: FireFeature; status: "hit" | "alarm" | "future" };
-  const matched = useMemo<{ rows: Match[]; missedObserved: FireFeature[] }>(() => {
-    if (!resolvedDate) return { rows: [], missedObserved: [] };
+  const matched = useMemo<{ rows: Match[]; missedObserved: FireFeature[]; isStoredFallback: boolean }>(() => {
+    if (!resolvedDate) return { rows: [], missedObserved: [], isStoredFallback: false };
+
+    // Latest observed timestamp across ALL obs (used globally for "future" classification).
     const latestObservedTs = observedFeatures.reduce((acc, f) => {
       const d = f.properties.date;
       if (!d) return acc;
-      const t = new Date(d).getTime();
-      return t > acc ? t : acc;
+      const ts = new Date(d).getTime();
+      return ts > acc ? ts : acc;
     }, 0);
+
+    // Timestamps of obs features inside this snapshot's window.
+    const obsTs = observedInWindow
+      .map(o => { const d = o.properties.date; return d ? new Date(d).getTime() : NaN; })
+      .filter(v => Number.isFinite(v));
+
+    // Non-future predictions: target date is within the observation horizon.
+    const nonFutureSnap = snapshot.filter(pred => {
+      const targetStr = pred.properties.predicted_fire_date;
+      if (!targetStr) return false;
+      const ts = new Date(targetStr).getTime();
+      return Number.isFinite(ts) && ts < latestObservedTs + 86400_000;
+    });
+
+    // Coverage ratio: fraction of non-future predictions with at least one
+    // obs within dayWindow days. < 0.5 means the obs data doesn't cover
+    // the bulk of prediction dates — stored fallback is more accurate.
+    const coveredCount = nonFutureSnap.filter(pred => {
+      const t = new Date(pred.properties.predicted_fire_date!).getTime();
+      return obsTs.some(ot => Math.abs(ot - t) / 86400_000 <= dayWindow);
+    }).length;
+    const coverageRatio = nonFutureSnap.length > 0 ? coveredCount / nonFutureSnap.length : 0;
+    const isStoredFallback = snapshot.length > 0 && (obsTs.length === 0 || coverageRatio < 0.5);
+
+    // Stored-fallback path: use validation_status computed by risk_map.py
+    // against the full FIRMS parquet (more accurate for historical snapshots).
+    if (isStoredFallback) {
+      const rows: Match[] = snapshot.map((pred) => {
+        const st = pred.properties.validation_status;
+        if (st === "hit")    return { feature: pred, status: "hit" as const };
+        if (st === "future") return { feature: pred, status: "future" as const };
+        // stored "miss" = prediction fired but no fire detected = false alarm
+        return { feature: pred, status: "alarm" as const };
+      });
+      return { rows, missedObserved: [], isStoredFallback: true };
+    }
 
     const rows: Match[] = [];
     const matchedObs = new Set<FireFeature>();
@@ -163,8 +212,9 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
       const [lon, lat] = pred.geometry.coordinates;
       const targetStr = pred.properties.predicted_fire_date;
       const target = targetStr ? new Date(targetStr).getTime() : NaN;
-      // "future" = predicted target hasn't been observed yet (with margin)
-      if (!Number.isFinite(target) || target > latestObservedTs + 86400_000) {
+      // "future" = predicted target is at or beyond the latest observation day
+      // (>= not > so "next day after latest obs" is also future, not alarm)
+      if (!Number.isFinite(target) || target >= latestObservedTs + 86400_000) {
         rows.push({ feature: pred, status: "future" });
         continue;
       }
@@ -195,8 +245,6 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
       const predCoords = snapshot.map((p) => p.geometry.coordinates);
       missedObserved = missedObserved.filter((o) => {
         const [olon, olat] = o.geometry.coordinates;
-        // Keep this observation in "missed" only if at least one prediction
-        // is within coverageKm — otherwise it's out-of-scope, not a miss.
         for (const [plon, plat] of predCoords) {
           if (Math.abs(plat - olat) > coverageKm / 80) continue;
           if (haversineKm(olat, olon, plat, plon) <= coverageKm) return true;
@@ -204,7 +252,7 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
         return false;
       });
     }
-    return { rows, missedObserved };
+    return { rows, missedObserved, isStoredFallback: false };
   }, [snapshot, observedInWindow, observedFeatures, resolvedDate, radiusKm, dayWindow, clipToCoverage]);
 
   const stats: Stats = useMemo(() => {
@@ -218,7 +266,8 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
     const decided = hits + falseAlarms;
     const recallDenom = hits + misses;
     const precision = decided ? hits / decided : 0;
-    const recall = recallDenom ? hits / recallDenom : 0;
+    // recall is only meaningful when we have live obs data (not stored fallback)
+    const recall = (!matched.isStoredFallback && recallDenom) ? hits / recallDenom : 0;
     const f1 = (precision + recall) ? (2 * precision * recall) / (precision + recall) : 0;
     return { hits, falseAlarms, misses, future, precision, recall, f1 };
   }, [matched]);
@@ -290,7 +339,7 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
     return () => {
       ctxMaps.forEach((m) => m.remove());
     };
-  }, [view, snapshot, observedInWindow, matched]);
+  }, [view, snapshot, observedInWindow, matched, t]);
 
   const fmt = (v: number, d = 1) => (v * 100).toFixed(d) + "%";
 
@@ -359,12 +408,33 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
         {t("compare.methodology")}
       </div>
 
-      {/* Matching controls — radius + day window */}
+      {/* Stored-fallback notice: shown when no live FIRMS data covers this snapshot's window */}
+      {matched.isStoredFallback && (
+        <div style={{
+          padding: "10px 14px", marginBottom: 12,
+          background: "rgba(234, 179, 8, 0.08)",
+          border: "1px solid rgba(234, 179, 8, 0.30)",
+          borderRadius: 6, fontSize: 12, color: "var(--text-2)",
+          lineHeight: 1.55, display: "flex", gap: 8, alignItems: "flex-start",
+        }}>
+          <span style={{ fontSize: 15, flexShrink: 0 }}>⚠️</span>
+          <span>
+            <b style={{ color: "var(--text)" }}>Using stored validation data</b> — live FIRMS observations don't cover this snapshot's date range.
+            Stats come from <code style={{ fontSize: 11, background: "var(--surface-2)", padding: "1px 5px", borderRadius: 3 }}>validation_status</code> written by
+            {" "}<code style={{ fontSize: 11, background: "var(--surface-2)", padding: "1px 5px", borderRadius: 3 }}>risk_map.py</code> against the full FIRMS parquet.
+            Radius / day-window sliders have no effect here. Recall is not available (no observed coordinates to count misses).
+          </span>
+        </div>
+      )}
+
+      {/* Matching controls — radius + day window (greyed out in stored-fallback mode) */}
       <div style={{
         padding: "10px 14px", marginBottom: 12,
         background: "var(--surface-2)",
         border: "1px solid var(--border)",
         borderRadius: 6,
+        opacity: matched.isStoredFallback ? 0.45 : 1,
+        pointerEvents: matched.isStoredFallback ? "none" : undefined,
       }}>
         <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-3)", letterSpacing: "0.06em" }}>
@@ -425,28 +495,41 @@ export default function ComparePage({ allFeatures, observedFeatures }: Props) {
         </div>
       </div>
 
-      {/* Precision/Recall/F1 explanation */}
+      {/* Precision/Recall/F1 */}
       <section className="report-section" style={{ marginBottom: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
           <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: 6 }}>
             <div style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 700, textTransform: "uppercase" }}>{t("compare.precision")}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: PALETTE.hit, marginTop: 4 }}>{fmt(stats.precision)}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: stats.hits + stats.falseAlarms > 0 ? PALETTE.hit : "var(--text-3)", marginTop: 4 }}>
+              {stats.hits + stats.falseAlarms > 0 ? fmt(stats.precision) : "—"}
+            </div>
             <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>
-              {fmtTr(t("compare.precision.exp"), { pct: fmt(stats.precision, 0) })}
+              {stats.hits + stats.falseAlarms > 0
+                ? fmtTr(t("compare.precision.exp"), { pct: fmt(stats.precision, 0) })
+                : "No decided predictions yet"}
             </div>
           </div>
-          <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: 6 }}>
-            <div style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 700, textTransform: "uppercase" }}>{t("compare.recall")}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: PALETTE.hit, marginTop: 4 }}>{fmt(stats.recall)}</div>
+          <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: 6, opacity: matched.isStoredFallback ? 0.45 : 1 }}>
+            <div style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 700, textTransform: "uppercase" }}>
+              {t("compare.recall")}
+              {matched.isStoredFallback && <span style={{ marginLeft: 6, fontWeight: 400, textTransform: "none", fontSize: 9 }}>(N/A — stored)</span>}
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: matched.isStoredFallback ? "var(--text-3)" : PALETTE.hit, marginTop: 4 }}>
+              {matched.isStoredFallback ? "—" : fmt(stats.recall)}
+            </div>
             <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>
-              {fmtTr(t("compare.recall.exp"), { pct: fmt(stats.recall, 0) })}
+              {matched.isStoredFallback
+                ? "Need live FIRMS obs to count missed fires"
+                : fmtTr(t("compare.recall.exp"), { pct: fmt(stats.recall, 0) })}
             </div>
           </div>
-          <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: 6 }}>
+          <div style={{ padding: "12px 14px", background: "var(--surface-2)", borderRadius: 6, opacity: matched.isStoredFallback ? 0.45 : 1 }}>
             <div style={{ fontSize: 10, color: "var(--text-3)", fontWeight: 700, textTransform: "uppercase" }}>{t("compare.f1")}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "var(--accent)", marginTop: 4 }}>{fmt(stats.f1)}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: matched.isStoredFallback ? "var(--text-3)" : "var(--accent)", marginTop: 4 }}>
+              {matched.isStoredFallback ? "—" : fmt(stats.f1)}
+            </div>
             <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>
-              {t("compare.f1.exp")}
+              {matched.isStoredFallback ? "Requires recall" : t("compare.f1.exp")}
             </div>
           </div>
         </div>

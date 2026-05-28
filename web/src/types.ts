@@ -264,16 +264,13 @@ export interface NotifyLogRecord {
   status: "queued" | "sent" | "failed";
 }
 
-export type AlertPageRoute = "dashboard" | "notify" | "live" | "reports" | "compare";
+export type AlertPageRoute = "dashboard" | "notify" | "live" | "reports" | "compare" | "analytics";
 
 export type DaySelection = "all" | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7";
 
 export interface DisplayOptions {
   showObserved: boolean;
   showLiveFires: boolean;
-  // Internal "always-on" flags, kept in the type so MapView's prop contract
-  // doesn't have to branch. The Sidebar no longer exposes user toggles for
-  // these — predictions + cell pins are part of the core dashboard now.
   showPredicted: boolean;
   showCellPins: boolean;
   heatRadius: number;

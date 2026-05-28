@@ -107,6 +107,16 @@ export default function Sidebar(p: SidebarProps) {
         <p className="subtitle">NASA FIRMS · real-data wildfire forecasting</p>
       </div>
 
+      {/* Layer toggles — top of sidebar for quick access */}
+      <LayerPills
+        options={p.options}
+        liveFireMeta={p.liveFireMeta}
+        onChange={p.onOptionsChange}
+      />
+
+      {/* Quick stats — at-a-glance Critical / High / Total */}
+      <QuickStats urgencyCounts={urgencyCounts} visibleCount={p.visibleCount} />
+
       {/* Base Date */}
       <div className="info-card">
         <div className="info-label">
@@ -194,7 +204,7 @@ export default function Sidebar(p: SidebarProps) {
           </button>
           {([0, 1, 2, 3, 4, 5, 6, 7] as const).map((d) => {
             const count = dayCounts[d];
-            const visible = count > 0;
+            const hasData = count > 0;
             const dateStr = dateAdd(p.activeBaseDate, d);
             const dateLabel = (() => {
               if (d <= 2) return dayLabel(d);
@@ -207,12 +217,25 @@ export default function Sidebar(p: SidebarProps) {
               <button
                 key={d}
                 className={`day-btn ${p.selectedDay === key ? "active" : ""}`}
-                onClick={() => p.onDayChange(key)}
-                style={{ display: visible ? "" : "none", flexDirection: "column", padding: "6px 4px", gap: 1 }}
-                title={`${fullDate} · ${count} ${ptsSuffix}`}
+                onClick={() => hasData && p.onDayChange(key)}
+                disabled={!hasData}
+                style={{
+                  flexDirection: "column",
+                  padding: "6px 4px",
+                  gap: 1,
+                  opacity: hasData ? 1 : 0.35,
+                  cursor: hasData ? "pointer" : "default",
+                }}
+                title={
+                  hasData
+                    ? `${fullDate} · ${count} ${ptsSuffix}`
+                    : `${fullDate} · no predictions for this day`
+                }
               >
                 <span style={{ fontSize: 11, fontWeight: 700 }}>{dateLabel}</span>
-                <span style={{ fontSize: 9, opacity: 0.7 }}>{count} {ptsSuffix}</span>
+                <span style={{ fontSize: 9, opacity: 0.7 }}>
+                  {hasData ? `${count} ${ptsSuffix}` : "—"}
+                </span>
               </button>
             );
           })}
@@ -345,14 +368,6 @@ export default function Sidebar(p: SidebarProps) {
       {/* Data sources / provenance */}
       <DataSourcesPanel />
 
-      {/* Display Options — simplified: only Observed FIRMS + Live GISTDA toggles.
-          Predictions + cell pins are always on (matches frontend/index.html v=8). */}
-      <DisplaySection
-        options={p.options}
-        liveFireMeta={p.liveFireMeta}
-        onChange={p.onOptionsChange}
-      />
-
       <div className="info-footer">
         <small style={{ display: "block", lineHeight: 1.6 }}>
           <b>🔥 Thailand Wildfire Imminence Predictor v0.5</b>
@@ -459,9 +474,9 @@ function HitRate({
   );
 }
 
-// ───────────────────── Display options sub-component ─────────────────────
+// ───────────────────── Layer pill toggles ─────────────────────
 
-function DisplaySection({
+function LayerPills({
   options,
   liveFireMeta,
   onChange,
@@ -471,60 +486,78 @@ function DisplaySection({
   onChange: (o: Partial<DisplayOptions>) => void;
 }) {
   const { t } = useLang();
-  let statusClass = "live-fire-status";
-  let statusText = "";
-  if (liveFireMeta.status === "loading") {
-    statusClass += " loading";
-    statusText = t("sidebar.live.loading");
-  } else if (liveFireMeta.status === "ok") {
-    statusClass += " ok";
-    const time = liveFireMeta.lastFetch ? liveFireMeta.lastFetch.toLocaleTimeString() : "—";
-    statusText = fmtTr(t("sidebar.live.ok"), {
-      n: liveFireMeta.count,
-      plural: liveFireMeta.count !== 1 ? "s" : "",
-      time,
-    });
-  } else if (liveFireMeta.status === "error") {
-    statusClass += " error";
-    statusText = fmtTr(t("sidebar.live.error"), { msg: liveFireMeta.error ?? "network error" });
-  }
+  const liveCount = liveFireMeta.status === "ok" ? liveFireMeta.count : null;
+  const liveError = liveFireMeta.status === "error";
 
   return (
-    <div className="section">
-      <h3>{t("sidebar.display.title")}</h3>
+    <div className="layer-pills">
+      <button
+        type="button"
+        className={`layer-pill predicted${options.showPredicted ? " active" : ""}`}
+        onClick={() => onChange({ showPredicted: !options.showPredicted })}
+        title={t("sidebar.display.predicted")}
+      >
+        <span className="layer-pill-dot" style={{ background: "#f97316" }} />
+        {t("sidebar.display.predicted")}
+      </button>
 
-      <div className="option-group">
-        <label className="toggle-label" style={{ borderColor: "rgba(249,115,22,0.25)" }}>
-          <input
-            type="checkbox"
-            checked={options.showPredicted}
-            onChange={(e) => onChange({ showPredicted: e.target.checked })}
-          />
-          <span style={{ color: "#f97316" }}>{t("sidebar.display.predicted")}</span>
-        </label>
+      <button
+        type="button"
+        className={`layer-pill observed${options.showObserved ? " active" : ""}`}
+        onClick={() => onChange({ showObserved: !options.showObserved })}
+        title={t("sidebar.display.observed")}
+      >
+        <span className="layer-pill-dot" style={{ background: "#ff6b35" }} />
+        {t("sidebar.display.observed")}
+      </button>
+
+      <button
+        type="button"
+        className={`layer-pill live${options.showLiveFires ? " active" : ""}${liveError ? " error-state" : ""}`}
+        onClick={() => onChange({ showLiveFires: !options.showLiveFires })}
+        title={
+          liveFireMeta.status === "error"
+            ? fmtTr(t("sidebar.live.error"), { msg: liveFireMeta.error ?? "network error" })
+            : t("sidebar.display.live")
+        }
+      >
+        <span className="layer-pill-dot" style={{ background: "#06b6d4" }} />
+        {t("sidebar.display.live")}
+        {liveCount !== null && liveCount > 0 && (
+          <span className="layer-pill-count">· {liveCount}</span>
+        )}
+      </button>
+
+    </div>
+  );
+}
+
+// ───────────────────── Quick stats strip ─────────────────────
+
+function QuickStats({
+  urgencyCounts,
+  visibleCount,
+}: {
+  urgencyCounts: Record<UrgencyLevel, number>;
+  visibleCount: number;
+}) {
+  return (
+    <div className="quick-stats-strip">
+      <div className="quick-stat critical" title="CRITICAL urgency — fire predicted within 24 h">
+        <div className="quick-stat-value">{urgencyCounts.CRITICAL}</div>
+        <div className="quick-stat-label">Critical</div>
       </div>
-
-      <div className="option-group">
-        <label className="toggle-label">
-          <input
-            type="checkbox"
-            checked={options.showObserved}
-            onChange={(e) => onChange({ showObserved: e.target.checked })}
-          />
-          <span>{t("sidebar.display.observed")}</span>
-        </label>
+      <div className="quick-stat high" title="HIGH urgency — fire predicted within ~2 days">
+        <div className="quick-stat-value">{urgencyCounts.HIGH}</div>
+        <div className="quick-stat-label">High</div>
       </div>
-
-      <div className="option-group">
-        <label className="toggle-label" style={{ borderColor: "rgba(6,182,212,0.25)" }}>
-          <input
-            type="checkbox"
-            checked={options.showLiveFires}
-            onChange={(e) => onChange({ showLiveFires: e.target.checked })}
-          />
-          <span style={{ color: "#06b6d4" }}>{t("sidebar.display.live")}</span>
-        </label>
-        {statusText && <div className={statusClass}>{statusText}</div>}
+      <div className="quick-stat medium" title="MEDIUM urgency — fire predicted within ~4 days">
+        <div className="quick-stat-value">{urgencyCounts.MEDIUM}</div>
+        <div className="quick-stat-label">Medium</div>
+      </div>
+      <div className="quick-stat total" title="Total visible predictions">
+        <div className="quick-stat-value">{visibleCount}</div>
+        <div className="quick-stat-label">Visible</div>
       </div>
     </div>
   );

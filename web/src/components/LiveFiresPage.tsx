@@ -47,10 +47,21 @@ interface Incident {
 
 function _formatGistdaTime(date?: number, time?: string): { iso: string; ms: number } {
   if (!date) return { iso: "", ms: 0 };
-  const s = String(date);
+  const s = String(Math.round(date));
+  // ArcGIS GeoJSON (f=geojson) returns esriFieldTypeDate as Unix ms — 13 digits.
+  // Some older exports use Unix seconds (10 digits). Handle both.
+  if (s.length >= 10) {
+    const ms = s.length >= 13 ? date : date * 1000;
+    return isNaN(ms) ? { iso: "", ms: 0 } : { iso: new Date(ms).toISOString(), ms };
+  }
+  // Fallback: 8-digit YYYYMMDD integer with optional HHMM time string.
   if (s.length !== 8) return { iso: "", ms: 0 };
   const isoDate = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-  const iso = time ? `${isoDate}T${time}:00+07:00` : `${isoDate}T00:00:00+07:00`;
+  // GISTDA time field is HHMM without colon — convert to HH:MM
+  const hhmm = time && time.length === 4
+    ? `${time.slice(0, 2)}:${time.slice(2, 4)}`
+    : (time ?? "00:00");
+  const iso = `${isoDate}T${hhmm}:00+07:00`;
   const ms = Date.parse(iso);
   return { iso, ms: isNaN(ms) ? 0 : ms };
 }

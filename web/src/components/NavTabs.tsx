@@ -15,11 +15,12 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { route: "dashboard", icon: "🗺", i18nKey: "nav.map",     fallback: "Map" },
-  { route: "live",      icon: "🔥", i18nKey: "nav.live",    fallback: "Live Fires" },
-  { route: "compare",   icon: "🆚", i18nKey: "nav.compare", fallback: "Compare" },
-  { route: "notify",    icon: "🔔", i18nKey: "nav.notify",  fallback: "Alerts" },
-  { route: "reports",   icon: "📊", i18nKey: "nav.reports", fallback: "Reports" },
+  { route: "dashboard", icon: "🗺", i18nKey: "nav.map",       fallback: "Map" },
+  { route: "live",      icon: "🔥", i18nKey: "nav.live",      fallback: "Live Fires" },
+  { route: "analytics", icon: "📈", i18nKey: "nav.analytics", fallback: "Analytics" },
+  { route: "compare",   icon: "🆚", i18nKey: "nav.compare",   fallback: "Compare" },
+  { route: "notify",    icon: "🔔", i18nKey: "nav.notify",    fallback: "Alerts" },
+  { route: "reports",   icon: "📊", i18nKey: "nav.reports",   fallback: "Reports" },
 ];
 
 export default function NavTabs({ active, onNavigate, criticalCount }: Props) {

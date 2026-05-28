@@ -727,8 +727,15 @@ def append_geojson(observed: pd.DataFrame, predicted: pd.DataFrame, base_date, t
         {f["properties"].get("base_date") for f in predicted_only if f["properties"].get("base_date")},
         reverse=True,
     )
-    keep_dates = set(d for d in base_dates if d != base_date_str)
-    keep_dates = set(list(keep_dates)[: MAX_BASE_DATE_SNAPSHOTS - 1])
+    # base_dates is sorted descending (newest first). Slice the list BEFORE
+    # converting to set so we always keep the N-1 most-recent dates, not an
+    # arbitrary subset. set(list(a_set)[:n]) is a known Python footgun because
+    # iteration order of sets is non-deterministic — this was causing the
+    # 2026-04-22 anomalous snapshot (2700 features) to survive instead of being
+    # evicted when newer snapshots accumulated.
+    keep_dates = set(
+        [d for d in base_dates if d != base_date_str][: MAX_BASE_DATE_SNAPSHOTS - 1]
+    )
     geojson["features"] = [
         f for f in predicted_only
         if f["properties"].get("base_date") in keep_dates
@@ -763,6 +770,11 @@ def append_geojson(observed: pd.DataFrame, predicted: pd.DataFrame, base_date, t
                 "lat": float(r["lat_grid"]),
                 "lon": float(r["lon_grid"]),
                 "fire_count": int(r["fire_count"]),
+                # urgency_level is not meaningful for observed detections (they
+                # are real hotspots, not model predictions), but we set a safe
+                # sentinel so frontend code that reads urgency_level without
+                # null-checking doesn't crash on None.
+                "urgency_level": "OBSERVED",
                 # Province annotation — frontend Thailand-only filter on the
                 # Live Fires page needs this. Predicted features already get
                 # it via build_predicted; observed was missing it.
